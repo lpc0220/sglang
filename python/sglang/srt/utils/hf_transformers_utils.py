@@ -46,7 +46,6 @@ from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_N
 from sglang.srt.configs import (
     ChatGLMConfig,
     DbrxConfig,
-    DeepseekVL2Config,
     DotsOCRConfig,
     DotsVLMConfig,
     ExaoneConfig,
@@ -63,7 +62,6 @@ from sglang.srt.configs import (
     Qwen3NextConfig,
     Step3VLConfig,
 )
-from sglang.srt.configs.deepseek_ocr import DeepseekVLV2Config
 from sglang.srt.configs.internvl import InternVLChatConfig
 from sglang.srt.connector import create_remote_connector
 from sglang.srt.multimodal.customized_mm_processor_utils import _CUSTOMIZED_MM_PROCESSOR
@@ -223,27 +221,6 @@ def _load_mistral_large_3_for_causal_LM(
     return loaded_config
 
 
-def _is_deepseek_ocr_model(config: PretrainedConfig) -> bool:
-    # TODO: Remove this workaround related when AutoConfig correctly identifies deepseek-ocr.
-    # Hugging Face's AutoConfig currently misidentifies it as deepseekvl2.
-    return (
-        getattr(config, "auto_map", None) is not None
-        and config.auto_map.get("AutoModel")
-        == "modeling_deepseekocr.DeepseekOCRForCausalLM"
-    )
-
-
-def _override_deepseek_ocr_v_head_dim(config: DeepseekVLV2Config) -> None:
-    # FIXME: deepseek-ocr's v_head_dim is set to 0 in its config file.
-    # https://huggingface.co/deepseek-ai/DeepSeek-OCR/blob/main/config.json#L116
-    if config.text_config.v_head_dim == 0:
-        V_HEAD_DIM_PATCH = 128
-        config.text_config.v_head_dim = V_HEAD_DIM_PATCH
-        logger.warning(
-            f"Overriding deepseek-ocr's v_head_dim from 0 to {V_HEAD_DIM_PATCH} to avoid potential issues."
-        )
-
-
 @lru_cache_frozenset(maxsize=32)
 def get_config(
     model: str,
@@ -310,14 +287,8 @@ def get_config(
 
     if config.model_type in _CONFIG_REGISTRY:
         model_type = config.model_type
-        if model_type == "deepseek_vl_v2":
-            if _is_deepseek_ocr_model(config):
-                model_type = "deepseek-ocr"
         config_class = _CONFIG_REGISTRY[model_type]
         config = config_class.from_pretrained(model, revision=revision)
-
-        if _is_deepseek_ocr_model(config):
-            _override_deepseek_ocr_v_head_dim(config)
 
         # NOTE(HandH1998): Qwen2VL requires `_name_or_path` attribute in `config`.
         setattr(config, "_name_or_path", model)
@@ -538,9 +509,6 @@ def get_processor(
             revision=revision,
             **kwargs,
         )
-    if _is_deepseek_ocr_model(config):
-        # Temporary hack for load deepseek-ocr
-        config.model_type = "deepseek-ocr"
 
     # fix: for Qwen2-VL and Sarashina2Vision models, inject default 'size' if not provided.
     if config.model_type in {"qwen2_vl", "sarashina2_vision"}:
