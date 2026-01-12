@@ -27,19 +27,15 @@ from sglang.srt.batch_invariant_ops import (
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
-    get_bool_env_var,
     is_cuda,
     is_flashinfer_available,
-    is_hip,
     is_npu,
     is_xpu,
 )
 
 _is_cuda = is_cuda()
 _is_flashinfer_available = is_flashinfer_available()
-_is_hip = is_hip()
 _is_npu = is_npu()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 _is_xpu = is_xpu()
 _flashinfer_layernorm_available = False
 
@@ -60,11 +56,6 @@ if _is_cuda or _is_xpu:
         gemma_rmsnorm,
         rmsnorm,
     )
-if _use_aiter:
-    from aiter import rmsnorm2d_fwd as rms_norm
-    from aiter import rmsnorm2d_fwd_with_add as fused_add_rms_norm
-elif _is_hip:
-    from vllm._custom_ops import fused_add_rms_norm, rms_norm
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +84,6 @@ class RMSNorm(MultiPlatformOp):
         self.variance_size_override = (
             None if var_hidden_size == hidden_size else var_hidden_size
         )
-        if _use_aiter:
-            self._forward_method = self.forward_aiter
 
     def forward_cuda(
         self,
@@ -140,46 +129,6 @@ class RMSNorm(MultiPlatformOp):
             )
             return out, residual_out
         return torch_npu.npu_rms_norm(x, self.weight.data, self.variance_epsilon)[0]
-
-    def forward_aiter(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if residual is not None:
-            residual_out = torch.empty_like(x)
-            output = torch.empty_like(x)
-            fused_add_rms_norm(
-                output,
-                x,
-                residual,
-                residual_out,
-                self.weight.data,
-                self.variance_epsilon,
-            )
-            return output, residual_out
-        return rms_norm(x, self.weight.data, self.variance_epsilon)
-
-    def forward_hip(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if not x.is_contiguous():
-            # NOTE: Remove this if aiter kernel supports discontinuous input
-            x = x.contiguous()
-        if residual is not None:
-            out = torch.empty_like(x)
-            residual_out = torch.empty_like(x)
-            fused_add_rms_norm(
-                out, x, residual_out, residual, self.weight.data, self.variance_epsilon
-            )
-            return out, residual_out
-        out = torch.empty_like(x)
-        rms_norm(out, x, self.weight.data, self.variance_epsilon)
-        return out
 
     def forward_native(
         self,
@@ -337,13 +286,6 @@ class LayerNorm(MultiPlatformOp):
             eps=self.variance_epsilon,
         ).to(orig_dtype)
 
-    def forward_hip(
-        self,
-        x: torch.Tensor,
-        **kwargs,
-    ) -> torch.Tensor:
-        return self.forward_native(x, **kwargs)
-
     def forward_npu(
         self,
         x: torch.Tensor,
@@ -368,10 +310,6 @@ class GemmaRMSNorm(MultiPlatformOp):
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(hidden_size))
         self.variance_epsilon = eps
-
-        # Re-dispatch
-        if _is_hip:
-            self._forward_method = self.forward_native
 
     def _forward_impl(
         self,

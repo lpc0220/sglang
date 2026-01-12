@@ -55,11 +55,8 @@ from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.utils import (
-    get_bool_env_var,
     is_cuda,
     is_flashinfer_available,
-    is_gfx95_supported,
-    is_hip,
     is_npu,
     is_sm90_supported,
     is_sm100_supported,
@@ -69,15 +66,9 @@ _is_cuda = is_cuda()
 _is_flashinfer_available = is_flashinfer_available()
 _is_sm90_supported = _is_cuda and is_sm90_supported()
 _is_sm100_supported = _is_cuda and is_sm100_supported()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and is_hip()
-_is_gfx95_supported = is_gfx95_supported()
 _is_npu = is_npu()
 
-if _use_aiter and _is_gfx95_supported:
-    from aiter.ops.triton.fused_fp8_quant import fused_rms_fp8_group_quant
-
-    from sglang.srt.layers.quantization.rocm_mxfp4_utils import fused_rms_mxfp4_quant
-elif _is_npu:
+if _is_npu:
     from sglang.srt.hardware_backend.npu.cmo import prepare_weight_cache
 
 FUSE_ALLREDUCE_MAX_BATCH_SIZE = 2048
@@ -417,69 +408,13 @@ class LayerCommunicator:
             else:
                 if residual is None:
                     residual = hidden_states
-
-                    if _use_aiter and _is_gfx95_supported and ("mxfp4" in quant_format):
-                        hidden_states, *_, _ = fused_rms_mxfp4_quant(
-                            hidden_states,
-                            self.input_layernorm.weight,
-                            self.input_layernorm.variance_epsilon,
-                            None,
-                            None,
-                            None,
-                            None,
-                        )
-                    elif _use_aiter and _is_gfx95_supported and ("fp8" in quant_format):
-
-                        hidden_states, _, _, _res = fused_rms_fp8_group_quant(
-                            hidden_states,
-                            self.input_layernorm.weight,
-                            self.input_layernorm.variance_epsilon,
-                            inp2=None,
-                            inp2_weight=None,
-                            inp2_epsilon=None,
-                            group_size=128,
-                            dtype_quant=torch.float8_e4m3fn,
-                            res1=None,
-                            output_unquantized_inp1=False,
-                        )
-
-                    else:
-                        hidden_states = self.input_layernorm(hidden_states, **kwargs)
+                    hidden_states = self.input_layernorm(hidden_states, **kwargs)
                 else:
-
-                    if _use_aiter and _is_gfx95_supported and ("mxfp4" in quant_format):
-                        hidden_states, *_, residual = fused_rms_mxfp4_quant(
-                            hidden_states,
-                            self.input_layernorm.weight,
-                            self.input_layernorm.variance_epsilon,
-                            None,
-                            None,
-                            None,
-                            residual,
-                        )
-                    elif _use_aiter and _is_gfx95_supported and ("fp8" in quant_format):
-                        # RMSNorm + FP8 per-group quant
-                        # return hidden_states：
-                        #   out_fp8  : FP8 activation →  a8w8 GEMM
-                        #   out_bs   : block-scale →  gemm_a8w8_blockscale.x_scale
-                        hidden_states, _, _, residual = fused_rms_fp8_group_quant(
-                            hidden_states,
-                            self.input_layernorm.weight,
-                            self.input_layernorm.variance_epsilon,
-                            inp2=None,
-                            inp2_weight=None,
-                            inp2_epsilon=None,
-                            group_size=128,
-                            dtype_quant=torch.float8_e4m3fn,
-                            res1=residual,
-                            output_unquantized_inp1=False,
-                        )
-                    else:
-                        hidden_states, residual = self.input_layernorm(
-                            hidden_states,
-                            residual,
-                            **kwargs,
-                        )
+                    hidden_states, residual = self.input_layernorm(
+                        hidden_states,
+                        residual,
+                        **kwargs,
+                    )
 
         hidden_states = self._communicate_simple_fn(
             hidden_states=hidden_states,

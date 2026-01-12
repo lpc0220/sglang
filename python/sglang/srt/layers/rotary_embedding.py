@@ -14,17 +14,13 @@ import triton.language as tl
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
-    get_bool_env_var,
     get_compiler_backend,
     is_cuda,
-    is_hip,
     is_npu,
     is_xpu,
 )
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 _is_npu = is_npu()
 _is_xpu = is_xpu()
 
@@ -32,9 +28,6 @@ if _is_cuda:
     from sgl_kernel import FusedSetKVBufferArg, apply_rope_with_cos_sin_cache_inplace
 else:
     FusedSetKVBufferArg = None
-
-if _use_aiter:
-    from aiter.rotary_embedding import get_rope as aiter_get_rope
 
 if is_npu():
     import torch_npu
@@ -115,7 +108,7 @@ class RotaryEmbedding(MultiPlatformOp):
             and not (_is_cpu)
             and not (_is_xpu)
         ):
-            if _is_cuda or _is_hip:
+            if _is_cuda:
                 from sgl_kernel import rotary_embedding
             else:
                 from vllm._custom_ops import rotary_embedding
@@ -825,10 +818,6 @@ class DeepseekScalingRotaryEmbedding(RotaryEmbedding):
         super().__init__(
             head_size, rotary_dim, max_position_embeddings, base, is_neox_style, dtype
         )
-
-        # Re-dispatch
-        if _is_hip:
-            self._forward_method = self.forward_native
 
     def _compute_inv_freq(self, scaling_factor: float) -> torch.Tensor:
         pos_freqs = self.base ** (
@@ -2878,8 +2867,7 @@ def get_rope_wrapper(
     device: Optional[str] = None,
 ):
     if device != "cpu":
-        wrapper = aiter_get_rope if _use_aiter else get_rope
-        return wrapper(
+        return get_rope(
             head_size,
             rotary_dim,
             max_position,

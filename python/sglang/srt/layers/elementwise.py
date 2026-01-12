@@ -4,10 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from sglang.srt.utils import is_hip
 from sglang.srt.utils.custom_op import register_custom_op
-
-_is_hip = is_hip()
 
 
 fused_softcap_autotune = triton.autotune(
@@ -198,7 +195,7 @@ def fused_dual_residual_rmsnorm(x, residual, weight1, weight2, eps, autotune=Fal
             output, mid, x, residual, weight1, weight2, eps=eps, hidden_dim=hidden_dim
         )
     else:
-        max_warps = 16 if _is_hip else 32
+        max_warps = 32
         config = {
             "BLOCK_SIZE": triton.next_power_of_2(hidden_dim),
             "num_warps": max(

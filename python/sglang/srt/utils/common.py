@@ -104,17 +104,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# https://pytorch.org/docs/stable/notes/hip.html#checking-for-hip
-@lru_cache(maxsize=1)
-def is_hip() -> bool:
-    return torch.version.hip is not None
-
-
-if is_hip():
-    HIP_FP8_E4M3_FNUZ_MAX = 224.0
-    FP8_E4M3_MAX = HIP_FP8_E4M3_FNUZ_MAX
-else:
-    FP8_E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max
+FP8_E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max
 
 FP8_E4M3_MIN = -FP8_E4M3_MAX
 
@@ -127,9 +117,6 @@ def is_cuda():
     return torch.cuda.is_available() and torch.version.cuda
 
 
-@lru_cache(maxsize=1)
-def is_cuda_alike():
-    return is_cuda() or is_hip()
 
 
 
@@ -1530,37 +1517,6 @@ def bind_port(port):
     return sock
 
 
-def get_amdgpu_memory_capacity():
-    try:
-        # Run rocm-smi and capture the output
-        result = subprocess.run(
-            [
-                "rocminfo | grep 'gfx' -A 100 | grep 'Pool 1' -A 5 | grep 'Size:' | awk '{print $2}'"
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"rocm-smi error: {result.stderr.strip()}")
-
-        # Parse the output to extract memory values in MiB
-        memory_values = [
-            float(mem.split("(")[0].strip()) / 1024
-            for mem in result.stdout.strip().split("\n")
-        ]
-
-        if not memory_values:
-            raise ValueError("No GPU memory values found.")
-
-        # Return the minimum memory value
-        return min(memory_values)
-
-    except FileNotFoundError:
-        raise RuntimeError(
-            "rocm-smi not found. Ensure AMD ROCm drivers are installed and accessible."
-        )
 
 
 def get_device_sm():
@@ -1692,12 +1648,8 @@ def get_xpu_memory_capacity():
 def get_device_memory_capacity(device: str = None):
     if is_cuda():
         gpu_mem = get_nvgpu_memory_capacity()
-    elif is_hip():
-        gpu_mem = get_amdgpu_memory_capacity()
     elif device == "hpu":
         gpu_mem = get_hpu_memory_capacity()
-    elif device == "npu":
-        gpu_mem = get_npu_memory_capacity()
     elif device == "cpu":
         gpu_mem = get_cpu_memory_capacity()
     elif device == "xpu":
@@ -3234,23 +3186,9 @@ def mxfp_supported():
     """
     Returns whether the current platform supports MX types.
     """
-    if torch.version.hip:
-        gcn_arch = torch.cuda.get_device_properties(0).gcnArchName
-        return any(gfx in gcn_arch for gfx in ["gfx95"])
-    else:
-        return False
+    return False
 
 
-@lru_cache(maxsize=1)
-def is_gfx95_supported():
-    """
-    Returns whether the current platform supports MX types.
-    """
-    if torch.version.hip:
-        gcn_arch = torch.cuda.get_device_properties(0).gcnArchName
-        return any(gfx in gcn_arch for gfx in ["gfx95"])
-    else:
-        return False
 
 
 # LoRA-related constants and utilities
@@ -3431,7 +3369,7 @@ def json_list_type(value):
 @contextmanager
 def maybe_reindex_device_id(gpu_id: int):
 
-    if envs.SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS.get() is False or not is_cuda_alike():
+    if envs.SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS.get() is False or not is_cuda():
         yield gpu_id
         return
 

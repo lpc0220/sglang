@@ -5,13 +5,11 @@ from torch import nn
 from sglang.srt.utils import (
     cpu_has_amx_support,
     is_cuda,
-    is_hip,
     is_npu,
     is_xpu,
 )
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 _is_npu = is_npu()
 _is_xpu = is_xpu()
 
@@ -89,8 +87,6 @@ class MultiPlatformOp(nn.Module):
     def dispatch_forward(self):
         if _is_cuda:
             return self.forward_cuda
-        elif _is_hip:
-            return self.forward_hip
         elif _is_npu:
             return self.forward_npu
         elif _is_xpu:

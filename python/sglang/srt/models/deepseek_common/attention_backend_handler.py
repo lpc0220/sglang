@@ -3,7 +3,6 @@ from sglang.srt.layers.attention.tbo_backend import TboAttnBackend
 from sglang.srt.models.deepseek_common.attention_forward_methods.forward_methods import (
     AttnForwardMethod,
 )
-from sglang.srt.models.deepseek_common.utils import _is_hip
 from sglang.srt.server_args import get_global_server_args
 
 
@@ -20,13 +19,7 @@ class AttentionBackendRegistry:
 
 
 def _dispatch_mla_subtype(attn, forward_batch):
-    if _is_hip:
-        if attn.rocm_fused_decode_mla and forward_batch.forward_mode.is_decode():
-            return AttnForwardMethod.MLA_FUSED_ROPE
-        else:
-            return AttnForwardMethod.MLA
-    else:
-        return AttnForwardMethod.MLA
+    return AttnForwardMethod.MLA
 
 
 def _get_sum_extend_prefix_lens(forward_batch):
