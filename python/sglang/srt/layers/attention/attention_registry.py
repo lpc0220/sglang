@@ -161,13 +161,6 @@ def create_trtllm_mha_backend(runner):
     return TRTLLMHAAttnBackend(runner)
 
 
-@register_attention_backend("intel_amx")
-def create_intel_amx_backend(runner):
-    from sglang.srt.layers.attention.intel_amx_backend import IntelAMXAttnBackend
-
-    return IntelAMXAttnBackend(runner)
-
-
 @register_attention_backend("dual_chunk_flash_attn")
 def create_dual_chunk_flash_attn_backend(runner):
     from sglang.srt.layers.attention.dual_chunk_flashattention_backend import (
@@ -223,10 +216,3 @@ def attn_backend_wrapper(runner: "ModelRunner", full_attn_backend: "AttentionBac
         )
 
     return full_attn_backend
-
-
-@register_attention_backend("intel_xpu")
-def create_intel_xpu_backend(runner):
-    from sglang.srt.layers.attention.xpu_backend import XPUAttentionBackend
-
-    return XPUAttentionBackend(runner)

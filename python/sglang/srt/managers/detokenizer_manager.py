@@ -34,7 +34,6 @@ from sglang.srt.managers.io_struct import (
     FreezeGCReq,
 )
 from sglang.srt.managers.multi_tokenizer_mixin import MultiHttpWorkerDetokenizerMixin
-from sglang.srt.metrics.cpu_monitor import start_cpu_monitor_thread
 from sglang.srt.server_args import PortArgs, ServerArgs
 from sglang.srt.utils import (
     configure_logger,
@@ -88,8 +87,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         # Init running status
         self.init_running_status(server_args)
 
-        if server_args.enable_metrics:
-            start_cpu_monitor_thread("detokenizer")
+        # CPU monitor removed (NVIDIA GPU only)
 
         # Init dispatcher
         self.init_request_dispatcher()

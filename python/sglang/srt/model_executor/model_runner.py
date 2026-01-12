@@ -104,7 +104,6 @@ from sglang.srt.lora.lora_manager import LoRAManager
 from sglang.srt.lora.lora_registry import LoRARef
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
 from sglang.srt.mem_cache.memory_pool import ReqToTokenPool
-from sglang.srt.model_executor.cpu_graph_runner import CPUGraphRunner
 from sglang.srt.model_executor.cuda_graph_runner import (
     CudaGraphRunner,
     set_torch_compile_config,
@@ -1984,10 +1983,10 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         logger.info(
             f"Capture {'cpu graph' if self.device == 'cpu' else 'cuda graph'} begin. This can take up to several minutes. avail mem={before_mem:.2f} GB"
         )
+        # NVIDIA GPU only - removed CPU and NPU graph runners
         graph_runners = defaultdict(
             lambda: CudaGraphRunner,
             {
-                "cpu": CPUGraphRunner,
                 "npu": NPUGraphRunner,
             },
         )
