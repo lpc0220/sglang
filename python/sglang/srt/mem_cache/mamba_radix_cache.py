@@ -28,11 +28,14 @@ import torch
 from numpy import float64
 
 from sglang.srt.distributed import get_tensor_model_parallel_rank
-from sglang.srt.layers.attention.fla.chunk_delta_h import CHUNK_SIZE as FLA_CHUNK_SIZE
 from sglang.srt.mem_cache.allocator import (
     PagedTokenToKVPoolAllocator,
     TokenToKVPoolAllocator,
 )
+
+# FLA (Flash Linear Attention) chunk size constant
+# Previously from sglang.srt.layers.attention.fla.chunk_delta_h
+FLA_CHUNK_SIZE = 64
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache, MatchResult
 from sglang.srt.mem_cache.memory_pool import HybridReqToTokenPool
 from sglang.srt.mem_cache.radix_cache import (

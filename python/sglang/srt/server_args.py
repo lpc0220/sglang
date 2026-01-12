@@ -29,8 +29,11 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union
 from sglang.srt.connector import ConnectorType
 from sglang.srt.environ import ToolStrictLevel, envs
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
-from sglang.srt.layers.attention.fla.chunk_delta_h import CHUNK_SIZE as FLA_CHUNK_SIZE
 from sglang.srt.lora.lora_registry import LoRARef
+
+# FLA (Flash Linear Attention) chunk size constant
+# Previously from sglang.srt.layers.attention.fla.chunk_delta_h
+FLA_CHUNK_SIZE = 64
 from sglang.srt.parser.reasoning_parser import ReasoningParser
 from sglang.srt.utils.common import (
     LORA_TARGET_ALL_MODULES,

@@ -57,8 +57,11 @@ from sglang.srt.disaggregation.decode_schedule_batch_mixin import (
 from sglang.srt.disaggregation.utils import DisaggregationMode
 from sglang.srt.distributed.parallel_state import get_tensor_model_parallel_rank
 from sglang.srt.environ import envs
-from sglang.srt.layers.attention.fla.chunk_delta_h import CHUNK_SIZE as FLA_CHUNK_SIZE
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
+
+# FLA (Flash Linear Attention) chunk size constant
+# Previously from sglang.srt.layers.attention.fla.chunk_delta_h
+FLA_CHUNK_SIZE = 64
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
 from sglang.srt.mem_cache.common import (
     alloc_for_decode,
