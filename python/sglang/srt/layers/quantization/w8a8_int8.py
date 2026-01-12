@@ -8,7 +8,6 @@ import torch
 from torch.nn.parameter import Parameter
 
 from sglang.srt.distributed import get_tensor_model_parallel_world_size
-from sglang.srt.layers.amx_utils import _amx_process_weight_after_loading
 from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig
 from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo
 from sglang.srt.layers.parameter import ChannelQuantScaleParameter, ModelWeightParameter
@@ -22,10 +21,8 @@ from sglang.srt.layers.quantization.compressed_tensors.utils import should_ignor
 from sglang.srt.layers.quantization.int8_kernel import per_token_quant_int8
 from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     is_cuda,
     set_weight_attrs,
-    use_intel_amx_backend,
 )
 from sglang.srt.utils.patch_torch import register_fake_if_exists
 
@@ -192,15 +189,6 @@ class W8A8Int8LinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ):
-        if use_intel_amx_backend(layer):
-            return torch.ops.sgl_kernel.int8_scaled_mm_with_quant(
-                x,
-                layer.weight,
-                layer.weight_scale,
-                bias,
-                x.dtype,
-                True,  # is_vnni
-            )
         x_q, x_scale = per_token_quant_int8(x)
 
         x_q_2d = x_q.view(-1, x_q.shape[-1])
@@ -318,36 +306,6 @@ class W8A8Int8MoEMethod(FusedMoEMethodBase):
         layer: torch.nn.Module,
         dispatch_output: StandardDispatchOutput,
     ) -> torch.Tensor:
-        from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
-
-        x = dispatch_output.hidden_states
-        topk_output = dispatch_output.topk_output
-
-        if use_intel_amx_backend(layer):
-            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
-
-            topk_weights, topk_ids, _ = topk_output
-            x, topk_weights = apply_topk_weights_cpu(
-                self.moe_runner_config.apply_router_weight_on_input, topk_weights, x
-            )
-            output = torch.ops.sgl_kernel.fused_experts_cpu(
-                x,
-                layer.w13_weight,
-                layer.w2_weight,
-                topk_weights,
-                topk_ids,
-                False,  # inplace See [Note] inplace should be False in fused_experts.
-                True,  # use_int8_w8a8
-                False,  # use_fp8_w8a16
-                layer.w13_weight_scale,  # w1_scale
-                layer.w2_weight_scale,  # w2_scale
-                None,  # block_size
-                layer.w13_input_scale,  # a1_scale
-                layer.w2_input_scale,  # a2_scale
-                True,  # is_vnni
-            )
-            return StandardCombineInput(hidden_states=output)
-
         quant_info = TritonMoeQuantInfo(
             w13_weight=layer.w13_weight,
             w2_weight=layer.w2_weight,

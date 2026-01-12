@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
-from sglang.srt.layers.amx_utils import _amx_process_weight_after_loading
 from sglang.srt.layers.moe import (
     MoeRunner,
     MoeRunnerBackend,
@@ -21,11 +20,9 @@ from sglang.srt.layers.quantization.base_config import (
 )
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_bool_env_var,
     next_power_of_2,
     set_weight_attrs,
-    use_intel_amx_backend,
 )
 
 if TYPE_CHECKING:
@@ -47,20 +44,6 @@ class UnquantizedLinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if use_intel_amx_backend(layer):
-            x_shapes = x.shape
-            if len(x_shapes) == 3:
-                x = x.view(-1, x.shape[-1])
-            output = torch.ops.sgl_kernel.weight_packed_linear(
-                x,
-                layer.weight,
-                bias,
-                True,  # is_vnni
-            )
-            if len(x_shapes) == 3:
-                output = output.view(x_shapes[0], x_shapes[1], -1)
-            return output
-
         return F.linear(x, layer.weight, bias)
 
 
@@ -295,40 +278,15 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, MultiPlatformOp):
             moe_runner_config.activation == "silu"
         ), f"activation = {moe_runner_config.activation} is not supported."
 
-        if use_intel_amx_backend(layer):
-            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
+        from sglang.srt.layers.moe.fused_moe_native import moe_forward_native
 
-            topk_weights, topk_ids, _ = topk_output
-            x, topk_weights = apply_topk_weights_cpu(
-                moe_runner_config.apply_router_weight_on_input, topk_weights, x
-            )
-            output = torch.ops.sgl_kernel.fused_experts_cpu(
-                x,
-                layer.w13_weight,
-                layer.w2_weight,
-                topk_weights,
-                topk_ids,
-                False,  # inplace # See [Note] inplace should be False in fused_experts.
-                False,  # use_int8_w8a8
-                False,  # use_fp8_w8a16
-                None,  # w1_scale
-                None,  # w2_scale
-                None,  # block_size
-                None,  # a1_scale
-                None,  # a2_scale
-                True,  # is_vnni
-            )
-            return StandardCombineInput(hidden_states=output)
-        else:
-            from sglang.srt.layers.moe.fused_moe_native import moe_forward_native
-
-            output = moe_forward_native(
-                layer,
-                x,
-                topk_output,
-                moe_runner_config,
-            )
-            return StandardCombineInput(hidden_states=output)
+        output = moe_forward_native(
+            layer,
+            x,
+            topk_output,
+            moe_runner_config,
+        )
+        return StandardCombineInput(hidden_states=output)
 
     def forward_npu(
         self,

@@ -55,7 +55,6 @@ from sglang.srt.model_executor.forward_batch_info import (
     ForwardMode,
 )
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import use_intel_amx_backend
 
 logger = logging.getLogger(__name__)
 
@@ -868,13 +867,6 @@ class LogitsProcessor(nn.Module):
             if self.use_fp32_lm_head:
                 logits = torch.matmul(
                     hidden_states.to(torch.float32), lm_head.weight.to(torch.float32).T
-                )
-            elif use_intel_amx_backend(lm_head):
-                logits = torch.ops.sgl_kernel.weight_packed_linear(
-                    hidden_states.to(lm_head.weight.dtype),
-                    lm_head.weight,
-                    None,  # bias
-                    True,  # is_vnni
                 )
             elif get_global_server_args().rl_on_policy_target is not None:
                 # Due to tie-weight, we may not be able to change lm_head's weight dtype

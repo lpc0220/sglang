@@ -2642,31 +2642,8 @@ def apply_rotary_pos_emb_npu(
     cos: torch.Tensor,
     sin: torch.Tensor,
     unsqueeze_dim=1) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Ascend implementation equivalent to apply_rotary_pos_emb_native.
-
-    Args:
-        q: [num_tokens, num_heads, head_size]
-        k: [num_tokens, num_kv_heads, head_size]
-        cos: [num_tokens, head_size]
-        sin: [num_tokens, head_size]
-    """
-    if (
-        cos.dim() != 2
-        or q.dim() != 3
-        or q.shape[1] >= NPU_ROTARY_MUL_MAX_NUM_HEADS
-        or q.shape[2] >= NPU_ROTARY_MUL_MAX_HEAD_SIZE
-    ):
-        # Note: num_heads and head_size of q must be less than 1000 and 896, respectively
-        return apply_rotary_pos_emb_native(q, k, cos, sin, unsqueeze_dim)
-    cos = cos.unsqueeze(unsqueeze_dim).unsqueeze(0)
-    sin = sin.unsqueeze(unsqueeze_dim).unsqueeze(0)
-    q = q.unsqueeze(0)
-    k = k.unsqueeze(0)
-    q_embed = torch_npu.npu_rotary_mul(q, cos, sin)
-    k_embed = torch_npu.npu_rotary_mul(k, cos, sin)
-    q_embed = q_embed.squeeze(0)
-    k_embed = k_embed.squeeze(0)
-    return q_embed, k_embed
+    """Native PyTorch implementation of rotary position embedding."""
+    return apply_rotary_pos_emb_native(q, k, cos, sin, unsqueeze_dim)
 
 
     apply_rotary_pos_emb = apply_rotary_pos_emb_native

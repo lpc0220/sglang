@@ -14,7 +14,6 @@ from sglang.srt.distributed import get_tensor_model_parallel_world_size, get_tp_
 from sglang.srt.distributed.device_communicators.pynccl_allocator import (
     use_symmetric_memory,
 )
-from sglang.srt.layers.amx_utils import _amx_process_weight_after_loading
 from sglang.srt.layers.dp_attention import is_allocation_symmetric
 from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig
 from sglang.srt.layers.moe.moe_runner.deep_gemm import DeepGemmMoeQuantInfo
@@ -63,7 +62,6 @@ from sglang.srt.layers.quantization.utils import (
     requantize_with_max_scale,
 )
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_bool_env_var,
     is_cuda,
     is_sm90_supported,
@@ -71,7 +69,6 @@ from sglang.srt.utils import (
     log_info_on_rank0,
     print_warning_once,
     set_weight_attrs,
-    use_intel_amx_backend,
 )
 
 if TYPE_CHECKING:
@@ -477,17 +474,6 @@ class Fp8LinearMethod(LinearMethodBase):
             )
 
         if self.block_quant:
-            if use_intel_amx_backend(layer):
-                return torch.ops.sgl_kernel.fp8_scaled_mm_cpu(
-                    x,
-                    layer.weight,
-                    layer.weight_scale_inv,
-                    self.quant_config.weight_block_size,
-                    bias,
-                    x.dtype,
-                    True,  # is_vnni
-                )
-
             if isinstance(x, tuple):
                 return self.w8a8_block_fp8_linear(
                     input=x[0],
@@ -997,32 +983,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
 
         x = dispatch_output.hidden_states
         moe_runner_config = self.moe_runner_config
-
-        if use_intel_amx_backend(layer):
-            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
-
-            topk_weights, topk_ids, _ = dispatch_output.topk_output
-            x, topk_weights = apply_topk_weights_cpu(
-                moe_runner_config.apply_router_weight_on_input, topk_weights, x
-            )
-
-            output = torch.ops.sgl_kernel.fused_experts_cpu(
-                x,
-                layer.w13_weight,
-                layer.w2_weight,
-                topk_weights,
-                topk_ids,
-                False,  # inplace See [Note] inplace should be False in fused_experts.
-                False,  # use_int8_w8a8
-                True,  # use_fp8_w8a16
-                layer.w13_weight_scale_inv,  # w1_scale
-                layer.w2_weight_scale_inv,  # w2_scale
-                self.quant_config.weight_block_size,  # block_size
-                None,  # a1_scale
-                None,  # a2_scale
-                True,  # is_vnni
-            )
-            return StandardCombineInput(hidden_states=output)
 
         if get_moe_runner_backend().is_cutlass():
             from sglang.srt.layers.moe.cutlass_moe import cutlass_fused_experts_fp8
