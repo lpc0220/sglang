@@ -29,18 +29,4 @@ def start_disagg_service(
             host=server_args.host,
             port=server_args.disaggregation_bootstrap_port,
         )
-        is_create_store = (
-            server_args.node_rank == 0 and transfer_backend == TransferBackend.ASCEND
-        )
-        if is_create_store:
-            try:
-                from mf_adapter import create_config_store
-
-                ascend_url = os.getenv("ASCEND_MF_STORE_URL")
-                create_config_store(ascend_url)
-            except Exception as e:
-                error_message = f"Failed create mf store, invalid ascend_url."
-                error_message += f" With exception {e}"
-                raise error_message
-
         return bootstrap_server

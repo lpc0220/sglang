@@ -197,7 +197,6 @@ FORWARD_ABSORB_CORE_ATTENTION_BACKENDS = [
     "flashinfer",
     "cutlass_mla",
     "trtllm_mla",
-    "ascend",
 ]
 
 

@@ -415,21 +415,6 @@ class MHATokenToKVPoolHost(HostKVCache):
                     page_size=self.page_size)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
-        elif io_backend == "kernel_ascend":
-            if self.layout == "page_first_direct":
-                # Ascend-specific: transfer KV data for all layers when layer_id == 0
-                if layer_id == 0:
-                    transfer_kv_dim_exchange(
-                        device_indices=device_indices,
-                        host_indices=host_indices,
-                        device_k=device_pool.k_buffer,
-                        host_k=self.k_buffer,
-                        device_v=device_pool.v_buffer,
-                        host_v=self.v_buffer,
-                        page_size=self.page_size,
-                        direction=TransferDirection.H2D)
-            else:
-                raise ValueError(f"Unsupported layout: {self.layout}")
         else:
             raise ValueError(f"Unsupported IO backend: {io_backend}")
 
@@ -500,19 +485,6 @@ class MHATokenToKVPoolHost(HostKVCache):
                     src_indices=device_indices,
                     dst_indices=host_indices,
                     page_size=self.page_size)
-            else:
-                raise ValueError(f"Unsupported layout: {self.layout}")
-        elif io_backend == "kernel_ascend":
-            if self.layout == "page_first_direct":
-                transfer_kv_dim_exchange(
-                    device_indices=device_indices,
-                    host_indices=host_indices,
-                    device_k=device_pool.k_buffer,
-                    host_k=self.k_buffer,
-                    device_v=device_pool.v_buffer,
-                    host_v=self.v_buffer,
-                    page_size=self.page_size,
-                    direction=TransferDirection.D2H)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         else:
@@ -698,30 +670,6 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.page_size,
                 1,
                 self.kv_lora_rank + self.qk_rope_head_dim)
-        # Ascend-specific: Aligns with NPUMLATokenToKVPool layout
-        # Separately allocate k_buffer and v_buffer for easier data transfer.
-        elif self.layout == "page_first_kv_split":
-            base_dims = (
-                self.page_num,
-                self.layer_num,
-                self.page_size,
-                1)
-            alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
-            self.k_buffer = alloc_func(
-                (*base_dims, self.kv_lora_rank),
-                dtype=self.dtype,
-                device=self.device,
-                pin_memory=self.pin_memory,
-                allocator=self.allocator)
-            self.v_buffer = alloc_func(
-                (*base_dims, self.qk_rope_head_dim),
-                dtype=self.dtype,
-                device=self.device,
-                pin_memory=self.pin_memory,
-                allocator=self.allocator)
-            # Return k_buffer to preserve original kv_buffer and data_refs init logic,
-            # though Ascend doesn't use these parameters.
-            return self.k_buffer
         else:
             raise ValueError(f"Unsupported layout: {self.layout}")
         self.token_stride_size = (
@@ -778,21 +726,6 @@ class MLATokenToKVPoolHost(HostKVCache):
                     page_size=self.page_size)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
-        elif io_backend == "kernel_ascend":
-            if self.layout == "page_first_kv_split":
-                # Ascend-specific: transfer KV data for all layers when layer_id == 0
-                if layer_id == 0:
-                    transfer_kv_dim_exchange(
-                        device_indices=device_indices,
-                        host_indices=host_indices,
-                        device_k=device_pool.k_buffer,
-                        host_k=self.k_buffer,
-                        device_v=device_pool.v_buffer,
-                        host_v=self.v_buffer,
-                        page_size=self.page_size,
-                        direction=TransferDirection.H2D)
-            else:
-                raise ValueError(f"Unsupported layout: {self.layout}")
         else:
             raise ValueError(f"Unsupported IO backend: {io_backend}")
 
@@ -834,19 +767,6 @@ class MLATokenToKVPoolHost(HostKVCache):
                     src_indices=device_indices,
                     dst_indices=host_indices,
                     page_size=self.page_size)
-            else:
-                raise ValueError(f"Unsupported layout: {self.layout}")
-        elif io_backend == "kernel_ascend":
-            if self.layout == "page_first_kv_split":
-                transfer_kv_dim_exchange(
-                    device_indices=device_indices,
-                    host_indices=host_indices,
-                    device_k=device_pool.k_buffer,
-                    host_k=self.k_buffer,
-                    device_v=device_pool.v_buffer,
-                    host_v=self.v_buffer,
-                    page_size=self.page_size,
-                    direction=TransferDirection.D2H)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         else:

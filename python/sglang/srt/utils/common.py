@@ -3073,7 +3073,7 @@ def parse_module_path(module_path, function_name, create_dummy):
     def create_dummy_module(full_path, parent=None):
         """Create and register a placeholder module"""
         dummy = types.ModuleType(full_path)
-        dummy.__file__ = "vllm_ascend.dummy_module.py"
+        dummy.__file__ = "dummy_module.py"
         dummy.__spec__ = ModuleSpec(full_path, None)
         sys.modules[full_path] = dummy
         if parent:

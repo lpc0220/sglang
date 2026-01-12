@@ -373,39 +373,7 @@ class ModelRunnerKVCacheMixin:
 
         # Initialize token_to_kv_pool
         is_nsa_model = is_deepseek_nsa(self.model_config.hf_config)
-        if self.server_args.attention_backend == "ascend":
-            if self.use_mla_backend:
-                    NPUMLATokenToKVPool)
-
-                self.token_to_kv_pool = NPUMLATokenToKVPool(
-                    self.max_total_num_tokens,
-                    page_size=self.page_size,
-                    dtype=self.kv_cache_dtype,
-                    kv_lora_rank=self.model_config.kv_lora_rank,
-                    qk_rope_head_dim=self.model_config.qk_rope_head_dim,
-                    index_head_dim=self.model_config.index_head_dim,
-                    layer_num=self.num_effective_layers,
-                    device=self.device,
-                    enable_memory_saver=self.server_args.enable_memory_saver,
-                    start_layer=self.start_layer,
-                    end_layer=self.end_layer)
-            else:
-                    NPUMHATokenToKVPool)
-
-                self.token_to_kv_pool = NPUMHATokenToKVPool(
-                    self.max_total_num_tokens,
-                    page_size=self.page_size,
-                    dtype=self.kv_cache_dtype,
-                    head_num=self.model_config.get_num_kv_heads(
-                        get_attention_tp_size()
-                    ),
-                    head_dim=self.model_config.head_dim,
-                    layer_num=self.num_effective_layers,
-                    device=self.device,
-                    enable_memory_saver=self.server_args.enable_memory_saver,
-                    start_layer=self.start_layer,
-                    end_layer=self.end_layer)
-        elif self.use_mla_backend and is_nsa_model:
+        if self.use_mla_backend and is_nsa_model:
             self.token_to_kv_pool = NSATokenToKVPool(
                 self.max_total_num_tokens,
                 page_size=self.page_size,
@@ -550,21 +518,7 @@ class ModelRunnerKVCacheMixin:
         # Initialize token_to_kv_pool_allocator
         need_sort = self.server_args.disaggregation_mode in ("decode", "prefill")
         if self.token_to_kv_pool_allocator is None:
-            if False and (
-                self.server_args.attention_backend == "ascend"
-                or self.hybrid_gdn_config is not None
-            ):
-                    NPUPagedTokenToKVPoolAllocator)
-
-                self.token_to_kv_pool_allocator = NPUPagedTokenToKVPoolAllocator(
-                    self.max_total_num_tokens,
-                    page_size=self.page_size,
-                    dtype=self.kv_cache_dtype,
-                    device=self.device,
-                    kvcache=self.token_to_kv_pool,
-                    need_sort=need_sort)
-            else:
-                if self.is_hybrid_swa:
+            if self.is_hybrid_swa:
                     self.token_to_kv_pool_allocator = SWATokenToKVPoolAllocator(
                         self.full_max_total_num_tokens,
                         self.swa_max_total_num_tokens,

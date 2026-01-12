@@ -29,13 +29,6 @@ def create_triton_csgmv_backend():
     return ChunkedSgmvLoRABackend
 
 
-@register_lora_backend("ascend")
-def create_ascend_backend():
-    from sglang.srt.lora.backend.ascend_backend import AscendLoRABackend
-
-    return AscendLoRABackend
-
-
 @register_lora_backend("torch_native")
 def create_torch_native_backend():
     from sglang.srt.lora.backend.torch_backend import TorchNativeLoRABackend
