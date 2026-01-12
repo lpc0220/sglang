@@ -11,8 +11,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from sglang.srt.utils import is_npu
-
 if TYPE_CHECKING:
     from sglang.srt.managers.schedule_batch import Req
 
@@ -229,7 +227,6 @@ class MetadataBuffers:
 class TransferBackend(Enum):
     MOONCAKE = "mooncake"
     NIXL = "nixl"
-    ASCEND = "ascend"
     FAKE = "fake"
 
 
@@ -261,23 +258,6 @@ def get_kv_class(
             KVClassType.SENDER: MooncakeKVSender,
             KVClassType.RECEIVER: (MooncakeKVReceiver),
             KVClassType.BOOTSTRAP_SERVER: MooncakeKVBootstrapServer,
-        }
-        return class_mapping.get(class_type)
-    elif transfer_backend == TransferBackend.ASCEND:
-        from sglang.srt.disaggregation.ascend import (
-            AscendKVBootstrapServer,
-            AscendKVManager,
-            AscendKVReceiver,
-            AscendKVSender,
-        )
-        from sglang.srt.disaggregation.base import KVArgs
-
-        class_mapping = {
-            KVClassType.KVARGS: KVArgs,
-            KVClassType.MANAGER: AscendKVManager,
-            KVClassType.SENDER: AscendKVSender,
-            KVClassType.RECEIVER: (AscendKVReceiver),
-            KVClassType.BOOTSTRAP_SERVER: AscendKVBootstrapServer,
         }
         return class_mapping.get(class_type)
     elif transfer_backend == TransferBackend.NIXL:

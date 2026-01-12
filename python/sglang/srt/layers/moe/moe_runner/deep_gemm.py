@@ -16,7 +16,7 @@ from sglang.srt.layers.moe.moe_runner.base import (
     register_pre_permute,
 )
 from sglang.srt.layers.moe.utils import MoeRunnerBackend
-from sglang.srt.utils import ceil_div, dispose_tensor, get_bool_env_var, is_npu
+from sglang.srt.utils import ceil_div, dispose_tensor, get_bool_env_var
 from sglang.srt.utils.offloader import get_offloader
 
 if TYPE_CHECKING:

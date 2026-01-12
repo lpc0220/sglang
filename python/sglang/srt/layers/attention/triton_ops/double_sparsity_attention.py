@@ -3,7 +3,7 @@ import triton
 import triton.language as tl
 
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
 if _is_cuda:

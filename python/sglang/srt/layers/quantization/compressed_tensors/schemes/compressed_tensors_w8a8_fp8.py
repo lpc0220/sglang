@@ -25,7 +25,7 @@ from sglang.srt.layers.quantization.fp8_utils import (
     validate_fp8_block_shape,
 )
 from sglang.srt.layers.quantization.utils import requantize_with_max_scale
-from sglang.srt.utils import get_bool_env_var, is_hip
+from sglang.srt.utils import get_bool_env_var
 
 __all__ = ["CompressedTensorsW8A8Fp8"]
 

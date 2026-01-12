@@ -6,7 +6,6 @@ import torch
 
 from sglang.srt.layers.parameter import GroupQuantScaleParameter, PackedvLLMParameter
 from sglang.srt.layers.quantization.quark.schemes import QuarkScheme
-from sglang.srt.utils import is_hip
 
 class QuarkW4A4MXFP4(QuarkScheme):
 

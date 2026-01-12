@@ -55,7 +55,7 @@ from sglang.srt.model_executor.forward_batch_info import (
     ForwardMode,
 )
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import is_npu, use_intel_amx_backend
+from sglang.srt.utils import use_intel_amx_backend
 
 logger = logging.getLogger(__name__)
 

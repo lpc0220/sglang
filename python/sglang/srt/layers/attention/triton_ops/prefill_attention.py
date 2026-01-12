@@ -22,7 +22,7 @@ import torch
 import triton
 import triton.language as tl
 
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
 

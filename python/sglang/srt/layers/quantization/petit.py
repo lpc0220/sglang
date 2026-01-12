@@ -21,7 +21,6 @@ from sglang.srt.layers.quantization.petit_utils import (
     verify_petit_nvfp4_supported,
 )
 from sglang.srt.layers.quantization.utils import is_layer_skipped
-from sglang.srt.utils import is_hip
 
 
 # Initialize logger for the module

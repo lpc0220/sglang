@@ -9,7 +9,7 @@ from einops import rearrange
 
 from sglang.srt.layers.layernorm import LayerNorm
 from sglang.srt.layers.utils import MultiPlatformOp
-from sglang.srt.utils import add_prefix, ceil_align, is_cuda, is_npu
+from sglang.srt.utils import add_prefix, ceil_align, is_cuda
 
 global _use_multi_stream
 
@@ -18,11 +18,6 @@ if is_cuda():
         import deep_gemm
     except ImportError as e:
         deep_gemm = e
-
-if is_npu():
-    import custom_ops  # noqa: F401
-    import torch_npu
-    from sglang.srt.hardware_backend.npu.utils import get_indexer_weight_stream
 
 from sglang.srt.distributed.parallel_state import get_pp_group
 from sglang.srt.layers import deep_gemm_wrapper
@@ -734,8 +729,7 @@ class Indexer(MultiPlatformOp):
         topk: int,
         layer_id: int,
     ) -> Optional[torch.Tensor]:
-        if not is_npu():
-            from sglang.srt.layers.attention.nsa.tilelang_kernel import fp8_index
+        from sglang.srt.layers.attention.nsa.tilelang_kernel import fp8_index
 
         page_size = forward_batch.token_to_kv_pool.page_size
         assert page_size == 64, "only support page size 64"
@@ -818,10 +812,7 @@ class Indexer(MultiPlatformOp):
         layer_id: int,
         return_indices: bool = True,
     ) -> Optional[torch.Tensor]:
-        if is_hip():
-            from sglang.srt.layers.attention.nsa.tilelang_kernel import act_quant
-        elif not is_npu():
-            from sglang.srt.layers.attention.nsa.triton_kernel import act_quant
+        from sglang.srt.layers.attention.nsa.triton_kernel import act_quant
 
         if TYPE_CHECKING:
             assert isinstance(forward_batch.token_to_kv_pool, NSATokenToKVPool)

@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, Optional
 
 import torch
 
-from sglang.srt.utils.common import is_npu
-
 if TYPE_CHECKING:
     from sglang.srt.layers.attention.nsa.nsa_indexer import BaseIndexerMetadata
     from sglang.srt.layers.radix_attention import RadixAttention
@@ -91,16 +89,6 @@ class AttentionBackend(ABC):
             return q.new_empty(q.shape[0], layer.tp_q_head_num * layer.v_head_dim)
         elif forward_batch.forward_mode.is_decode():
             return self.forward_decode(
-                q,
-                k,
-                v,
-                layer,
-                forward_batch,
-                save_kv_cache=save_kv_cache,
-                **kwargs,
-            )
-        elif forward_batch.forward_mode.is_mixed() and is_npu():
-            return self.forward_mixed(
                 q,
                 k,
                 v,

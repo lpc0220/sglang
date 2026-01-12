@@ -23,7 +23,7 @@ import triton.language as tl
 from sglang.srt.layers.attention.triton_ops.prefill_attention import (
     context_attention_fwd,
 )
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
 if _is_cuda:

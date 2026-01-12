@@ -4,8 +4,6 @@ import tilelang
 import tilelang.language as T
 import torch
 
-from sglang.srt.utils import is_hip
-
 tilelang.set_log_level("WARNING")
 
 pass_configs = {
