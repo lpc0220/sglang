@@ -19,21 +19,6 @@ from sglang.srt.utils.profile_utils import ProfileManager
 if TYPE_CHECKING:
     from sglang.srt.managers.schedule_batch import ScheduleBatch
     from sglang.srt.managers.scheduler import Scheduler
-
-_is_npu = is_npu()
-if _is_npu:
-    import torch_npu
-
-    patches = [
-        ["profiler.profile", torch_npu.profiler.profile],
-        ["profiler.ProfilerActivity.CUDA", torch_npu.profiler.ProfilerActivity.NPU],
-        ["profiler.ProfilerActivity.CPU", torch_npu.profiler.ProfilerActivity.CPU],
-    ]
-    torch_npu._apply_patches(patches)
-
-logger = logging.getLogger(__name__)
-
-
 class SchedulerProfilerMixin:
     def init_profiler(self: Scheduler):
         if envs.SGLANG_PROFILE_V2.get():
@@ -192,13 +177,7 @@ class SchedulerProfilerMixin:
                 activities=torchprof_activities,
                 with_stack=with_stack if with_stack is not None else True,
                 record_shapes=record_shapes if record_shapes is not None else False,
-                on_trace_ready=(
-                    None
-                    if not _is_npu
-                    else torch_npu.profiler.tensorboard_trace_handler(
-                        self.torch_profiler_output_dir
-                    )
-                ),
+                on_trace_ready=None,  # NPU removed, CUDA-only
             )
             self.torch_profiler.start()
             self.profile_in_progress = True
@@ -269,8 +248,7 @@ class SchedulerProfilerMixin:
         logger.info("Stop profiling" + stage_suffix + "...")
         if self.torch_profiler is not None:
             self.torch_profiler.stop()
-            if not _is_npu:
-                # Build filename with only non-zero ranks to maintain backward compatibility
+                            # Build filename with only non-zero ranks to maintain backward compatibility
                 filename_parts = [self.profile_id, f"TP-{self.tp_rank}"]
 
                 # Only add other ranks if parallelism is enabled (size > 1)

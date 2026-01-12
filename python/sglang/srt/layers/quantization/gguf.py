@@ -29,8 +29,6 @@ if TYPE_CHECKING:
     )
 
 _is_cuda = is_cuda()
-_is_xpu = is_xpu()
-
 if _is_cuda:
     from sgl_kernel import gelu_and_mul, moe_align_block_size, moe_sum, silu_and_mul
     from sgl_kernel.quantization import (
@@ -42,8 +40,7 @@ if _is_cuda:
         ggml_mul_mat_vec_a8,
     )
 else:
-    if not _is_hip:
-        warnings.warn(f"Only CUDA support GGUF quantization currently.")
+            warnings.warn(f"Only CUDA support GGUF quantization currently.")
 
 logger = logging.getLogger(__name__)
 

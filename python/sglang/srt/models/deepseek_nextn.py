@@ -58,7 +58,6 @@ logger = logging.getLogger(__name__)
 
 
 _is_cuda = is_cuda()
-_is_npu = is_npu()
 
 
 class DeepseekModelNextN(nn.Module):

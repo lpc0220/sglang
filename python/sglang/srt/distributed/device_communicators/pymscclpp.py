@@ -15,8 +15,6 @@ from sglang.srt.utils import is_hip
 
 logger = logging.getLogger(__name__)
 
-_is_hip = is_hip()
-
 
 class MscclContextSelection(IntEnum):
     MSCCL1SHOT1NODELL = 1
@@ -188,8 +186,7 @@ class PyMscclppCommunicator:
             self.context_selection = MscclContextSelection.MSCCL1SHOT1NODELL
         elif world_size == 16:
             self.context_selection = MscclContextSelection.MSCCL1SHOT2NODELL
-        if not _is_hip:
-            self.scratch = torch.empty(
+                    self.scratch = torch.empty(
                 self.max_bytes * 8,
                 dtype=torch.uint8,
                 device=self.device,

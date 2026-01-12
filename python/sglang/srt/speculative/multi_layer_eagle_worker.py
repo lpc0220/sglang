@@ -56,8 +56,6 @@ from sglang.srt.speculative.spec_utils import (
 )
 from sglang.srt.utils import empty_context, get_available_gpu_memory, is_cuda, is_npu
 
-_is_npu = is_npu()
-
 if is_cuda():
     from sgl_kernel import segment_packbits  # noqa: F401
 
@@ -212,7 +210,7 @@ class MultiLayerEagleWorker(TpModelWorker):
 
         # Capture extend
         for step in range(self.speculative_num_steps):
-            if self.draft_extend_attn_backend_list[step] and not _is_npu:
+            if self.draft_extend_attn_backend_list[step]:
                 tic = time.perf_counter()
                 before_mem = get_available_gpu_memory(self.device, self.gpu_id)
                 logger.info(

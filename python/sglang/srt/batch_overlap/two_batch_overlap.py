@@ -47,8 +47,6 @@ if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher import DispatchOutput
     from sglang.srt.speculative.eagle_info import EagleVerifyInput
 
-_is_hip = is_hip()
-
 _tbo_debug = get_bool_env_var("SGLANG_TBO_DEBUG")
 
 logger = logging.getLogger(__name__)
@@ -851,12 +849,9 @@ def _model_forward_tbo(
     original_hidden_states_len = inputs["hidden_states"].shape[0]
     del inputs
 
-    context = (
-        empty_context()
-        if _is_hip
-        else deep_gemm_wrapper.configure_deep_gemm_num_sms(
-            operations_strategy.deep_gemm_num_sms
-        )
+    # HIP removed, CUDA-only
+    context = deep_gemm_wrapper.configure_deep_gemm_num_sms(
+        operations_strategy.deep_gemm_num_sms
     )
 
     with context:

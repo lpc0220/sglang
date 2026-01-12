@@ -35,11 +35,9 @@ from sglang.srt.utils import (
 
 _is_cuda = is_cuda()
 _is_flashinfer_available = is_flashinfer_available()
-_is_npu = is_npu()
-_is_xpu = is_xpu()
 _flashinfer_layernorm_available = False
 
-if _is_cuda or _is_xpu:
+if _is_cuda:
     if _is_flashinfer_available:
         try:
             from flashinfer.norm import layernorm
@@ -58,10 +56,6 @@ if _is_cuda or _is_xpu:
     )
 
 logger = logging.getLogger(__name__)
-
-if _is_npu:
-    import torch_npu
-
 
 class RMSNorm(MultiPlatformOp):
     def __init__(

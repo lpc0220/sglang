@@ -39,10 +39,7 @@ from sglang.srt.utils import (
 from sglang.utils import resolve_obj_by_qualname
 
 _is_cuda = is_cuda()
-_is_npu = is_npu()
-_is_xpu = is_xpu()
-
-if _is_cuda or _is_xpu:
+if _is_cuda:
     from sgl_kernel import gelu_and_mul, gelu_tanh_and_mul, silu_and_mul
 
 logger = logging.getLogger(__name__)

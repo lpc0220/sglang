@@ -12,21 +12,6 @@ from sglang.srt.managers.io_struct import ProfileReqOutput
 from sglang.srt.model_executor.forward_batch_info import ForwardMode
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import is_npu
-
-_is_npu = is_npu()
-if _is_npu:
-    import torch_npu
-
-    patches = [
-        ["profiler.profile", torch_npu.profiler.profile],
-        ["profiler.ProfilerActivity.CUDA", torch_npu.profiler.ProfilerActivity.NPU],
-        ["profiler.ProfilerActivity.CPU", torch_npu.profiler.ProfilerActivity.CPU],
-    ]
-    torch_npu._apply_patches(patches)
-
-logger = logging.getLogger(__name__)
-
-
 class ProfileManager:
     def __init__(self, tp_rank: int, cpu_group, gpu_id: int):
         self.stage_based_trigger = _StageBasedTrigger(
@@ -275,11 +260,7 @@ class _ProfilerTorch(_ProfilerConcreteBase):
             record_shapes=(
                 self.record_shapes if self.record_shapes is not None else False
             ),
-            on_trace_ready=(
-                None
-                if not _is_npu
-                else torch_npu.profiler.tensorboard_trace_handler(self.output_dir)
-            ),
+            on_trace_ready=None,  # NPU removed, CUDA-only
         )
         self.torch_profiler.start()
 
@@ -287,8 +268,7 @@ class _ProfilerTorch(_ProfilerConcreteBase):
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
         self.torch_profiler.stop()
-        if not _is_npu:
-            # Build filename with only non-zero ranks to maintain backward compatibility
+                    # Build filename with only non-zero ranks to maintain backward compatibility
             filename_parts = [self.profile_id, f"TP-{self.tp_rank}"]
 
             # Only add other ranks if parallelism is enabled (size > 1)

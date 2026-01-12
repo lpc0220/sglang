@@ -8,17 +8,6 @@ from sglang.srt.layers.parameter import GroupQuantScaleParameter, PackedvLLMPara
 from sglang.srt.layers.quantization.quark.schemes import QuarkScheme
 from sglang.srt.utils import is_hip
 
-if _is_hip:
-    from aiter.ops.triton.gemm_afp4wfp4 import gemm_afp4wfp4
-    from aiter.ops.triton.gemm_afp4wfp4_pre_quant_atomic import gemm_afp4wfp4_pre_quant
-    from aiter.ops.triton.quant import dynamic_mxfp4_quant
-
-
-__all__ = ["QuarkW4A4MXFP4"]
-
-OCP_MX_BLOCK_SIZE = 32
-
-
 class QuarkW4A4MXFP4(QuarkScheme):
 
     def __init__(

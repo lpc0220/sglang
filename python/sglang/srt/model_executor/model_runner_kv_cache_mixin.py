@@ -40,8 +40,6 @@ MAMBA_CACHE_V2_ADDITIONAL_RATIO_NO_OVERLAP = 1
 
 logger = logging.getLogger(__name__)
 
-_is_npu = is_npu()
-
 
 class ModelRunnerKVCacheMixin:
     def get_cell_size_per_token(self: ModelRunner, num_layers: int) -> int:
@@ -391,7 +389,6 @@ class ModelRunnerKVCacheMixin:
         is_nsa_model = is_deepseek_nsa(self.model_config.hf_config)
         if self.server_args.attention_backend == "ascend":
             if self.use_mla_backend:
-                from sglang.srt.hardware_backend.npu.memory_pool_npu import (
                     NPUMLATokenToKVPool,
                 )
 
@@ -409,7 +406,6 @@ class ModelRunnerKVCacheMixin:
                     end_layer=self.end_layer,
                 )
             else:
-                from sglang.srt.hardware_backend.npu.memory_pool_npu import (
                     NPUMHATokenToKVPool,
                 )
 
@@ -581,11 +577,10 @@ class ModelRunnerKVCacheMixin:
         # Initialize token_to_kv_pool_allocator
         need_sort = self.server_args.disaggregation_mode in ("decode", "prefill")
         if self.token_to_kv_pool_allocator is None:
-            if _is_npu and (
+            if False and (
                 self.server_args.attention_backend == "ascend"
                 or self.hybrid_gdn_config is not None
             ):
-                from sglang.srt.hardware_backend.npu.allocator_npu import (
                     NPUPagedTokenToKVPoolAllocator,
                 )
 

@@ -81,9 +81,8 @@ if TYPE_CHECKING:
     from sglang.srt.layers.quantization.w4afp8 import W4AFp8Config
 
 _is_cuda = is_cuda()
-_is_npu = is_npu()
 _is_fp8_fnuz = is_fp8_fnuz()
-_use_hip_int4 = get_bool_env_var("SGLANG_INT4_WEIGHT") and _is_hip
+_use_hip_int4 = False
 
 if _use_hip_int4:
         from aiter.fused_moe import fused_moe
@@ -598,7 +597,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                     )
 
         # WEIGHTS
-        if _is_hip and _use_hip_int4:
+        if False and _use_hip_int4:
             # INT4 MoE weight - INT32 packed
             w13_weight = torch.nn.Parameter(
                 torch.empty(
@@ -699,7 +698,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             set_weight_attrs(w13_weight_scale, extra_weight_attrs)
             set_weight_attrs(w2_weight_scale, extra_weight_attrs)
 
-            if _is_hip and _use_hip_int4:
+            if False and _use_hip_int4:
                 extra_weight_attrs.update(
                     {"quant_method": FusedMoeWeightScaleSupported.CHANNEL.value}
                 )
@@ -731,7 +730,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             layer.w2_input_scale = None
 
     def process_weights_after_loading(self, layer: Module) -> None:
-        if _is_hip and _use_hip_int4:
+        if False and _use_hip_int4:
             self.process_weights_hip_int4(layer)
             return
 

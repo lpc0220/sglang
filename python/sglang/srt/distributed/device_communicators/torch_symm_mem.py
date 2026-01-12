@@ -15,7 +15,6 @@ try:
     import torch.distributed._symmetric_memory as torch_symm_mem
 
     _is_cuda = is_cuda()
-    _is_hip = is_hip()
 
     torch_symm_mem_available = False
     if _is_cuda:

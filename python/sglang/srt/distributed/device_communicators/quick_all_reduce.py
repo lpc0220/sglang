@@ -21,13 +21,11 @@ from sglang.srt.utils import is_cuda, is_hip
 logger = logging.getLogger(__name__)
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 
 
 @cache
 def qr_rocm_arch_available():
-    if not _is_hip:
-        return False
+            return False
     try:
         props = torch.cuda.get_device_properties(0)
         gcn_arch = getattr(props, "gcnArchName", "")
@@ -155,7 +153,7 @@ class QuickAllReduce:
         # test nvlink first, this will filter out most of the cases
         # where custom quick allreduce is not supported
         # this checks hardware and driver support for NVLink
-        if _is_cuda or _is_hip:
+        if _is_cuda:
             self.fully_connected = is_full_nvlink(physical_device_ids, self.world_size)
         if self.world_size > 2 and not self.fully_connected:
             logger.debug(

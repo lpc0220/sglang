@@ -256,7 +256,7 @@ def fused_rmsnorm(x, weight, eps, autotune=False, inplace=False):
     else:
         output = torch.empty_like(x)
     bs, hidden_dim = x.shape
-    max_warps = 16 if _is_hip else 32
+    max_warps = 32
     config = {
         "BLOCK_SIZE": triton.next_power_of_2(hidden_dim),
         "num_warps": max(
@@ -469,7 +469,7 @@ def gelu_and_mul_triton(
             out_scales = scales
             static_scale = True
 
-    max_warps = 16 if _is_hip else 32
+    max_warps = 32
     config = {
         # 8 ele per thread (not tuned)
         "num_warps": max(
@@ -563,7 +563,7 @@ def silu_and_mul_triton(
             out_scales = scales
             static_scale = True
 
-    max_warps = 16 if _is_hip else 32
+    max_warps = 32
     config = {
         # 8 ele per thread (not tuned)
         "num_warps": max(

@@ -75,19 +75,6 @@ if TYPE_CHECKING:
 
 _is_shuffle_moe_mxfp4 = is_gfx95_supported()
 
-if _is_hip:
-    # import aiter
-    try:
-                from aiter.fused_moe import fused_moe
-        from aiter.ops.shuffle import shuffle_weight
-        from aiter.ops.triton.quant import dynamic_mxfp4_quant
-        from aiter.utility.fp4_utils import e8m0_shuffle
-    except ImportError as err:
-        ActivationType = QuantType = fused_moe = dynamic_mxfp4_quant = e8m0_shuffle = (
-            err
-        )
-
-
 def _swizzle_mxfp4(quant_tensor, scale, num_warps):
     """weight swizzle for mxfp4 moe, used for OAI mxfp4 kernel"""
     import triton_kernels.matmul_ogs_details.opt_flags as opt_flags

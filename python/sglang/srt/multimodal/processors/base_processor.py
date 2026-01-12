@@ -26,8 +26,6 @@ from sglang.srt.utils.cuda_ipc_transport_utils import (
     MmItemMemoryPool,
 )
 
-_is_npu = is_npu()
-
 SGL_USE_CUDA_IPC = envs.SGLANG_USE_CUDA_IPC_TRANSPORT.get()
 
 
@@ -319,8 +317,7 @@ class BaseMultimodalProcessor(ABC):
         ):
             if get_global_server_args().rl_on_policy_target is not None:
                 kwargs["device"] = "cpu"
-            elif not _is_npu:
-                kwargs["device"] = "cuda"
+            el                kwargs["device"] = "cuda"
             elif processor.__class__.__name__ not in {
                 "Qwen2_5_VLProcessor",
                 "Qwen3VLProcessor",

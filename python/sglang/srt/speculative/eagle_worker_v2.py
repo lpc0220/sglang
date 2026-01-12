@@ -6,10 +6,8 @@ from typing import List, Optional, Tuple
 import torch
 
 from sglang.srt.environ import envs
-from sglang.srt.hardware_backend.npu.graph_runner.eagle_draft_extend_npu_graph_runner import (
     EAGLEDraftExtendNpuGraphRunner,
 )
-from sglang.srt.hardware_backend.npu.graph_runner.eagle_draft_npu_graph_runner import (
     EAGLEDraftNpuGraphRunner,
 )
 from sglang.srt.layers.attention.triton_backend import TritonMultiStepDraftBackend
@@ -56,8 +54,6 @@ from sglang.srt.utils.common import (
     next_power_of_2,
 )
 from sglang.srt.utils.patch_torch import monkey_patch_torch_reductions
-
-_is_npu = is_npu()
 _is_cuda = is_cuda()
 
 logger = logging.getLogger(__name__)
@@ -255,12 +251,10 @@ class EagleDraftWorker(BaseDraftWorker):
         }
         # Capture extend
         # TODO: support draft extend cuda graph for more attention backends
+        # NPU removed, CUDA-only
         if self.draft_extend_attn_backend and (
-            _is_npu
-            or (
-                _is_cuda
-                and isinstance(self.draft_attn_backend, TritonMultiStepDraftBackend)
-            )
+            _is_cuda
+            and isinstance(self.draft_attn_backend, TritonMultiStepDraftBackend)
         ):
             tic = time.perf_counter()
             before_mem = get_available_gpu_memory(self.device, self.gpu_id)

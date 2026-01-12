@@ -74,7 +74,6 @@ from sglang.srt.eplb.expert_location import (
     set_global_expert_location_metadata,
 )
 from sglang.srt.eplb.expert_location_updater import ExpertLocationUpdater
-from sglang.srt.hardware_backend.npu.graph_runner.npu_graph_runner import NPUGraphRunner
 from sglang.srt.layers import deep_gemm_wrapper
 from sglang.srt.layers.attention.attention_registry import (
     ATTENTION_BACKENDS,
@@ -115,7 +114,6 @@ from sglang.srt.model_executor.forward_batch_info import (
     PPProxyTensors,
 )
 from sglang.srt.model_executor.hook_manager import register_forward_hooks
-from sglang.srt.model_executor.input_buffers import GraphInputBuffers
 from sglang.srt.model_executor.model_runner_kv_cache_mixin import (
     ModelRunnerKVCacheMixin,
 )
@@ -173,38 +171,7 @@ from sglang.srt.weight_sync.tensor_bucket import (
     FlattenedTensorBucket,
     FlattenedTensorMetadata,
 )
-
-_is_hip = is_hip()
-_is_npu = is_npu()
 _is_cpu_arm64 = is_host_cpu_arm64()
-
-if _is_npu:
-    from sglang.srt.hardware_backend.npu.utils import init_npu_backend
-
-    init_npu_backend()
-
-MLA_ATTENTION_BACKENDS = [
-    "aiter",
-    "flashinfer",
-    "fa3",
-    "fa4",
-    "triton",
-    "flashmla",
-    "cutlass_mla",
-    "trtllm_mla",
-    "ascend",
-    "nsa",
-]
-
-CHUNKED_PREFIX_CACHE_SUPPORTED_ATTENTION_BACKENDS = [
-    "flashinfer",
-    "fa3",
-    "fa4",
-    "flashmla",
-    "cutlass_mla",
-    "trtllm_mla",
-]
-
 
 def add_mla_attention_backend(backend_name):
     if backend_name not in MLA_ATTENTION_BACKENDS:
@@ -397,7 +364,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
     def init_mindspore_runner(self):
         # Init the mindspore runner
         # for now, there is only some communication initialization work
-        if self.server_args.model_impl.lower() == ModelImpl.MINDSPORE and _is_npu:
+        if False:  # NPU removed
             from sglang.srt.model_executor.mindspore_runner import init_ms_distributed
 
             init_ms_distributed(
@@ -1512,19 +1479,16 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 isinstance(kv_cache_quant_algo, str)
                 and kv_cache_quant_algo.upper() == "FP8"
             ):
-                if _is_hip:
-                    self.kv_cache_dtype = fp8_dtype
-                else:
-                    self.kv_cache_dtype = torch.float8_e4m3fn
+                                    self.kv_cache_dtype = torch.float8_e4m3fn
             else:
                 self.kv_cache_dtype = self.dtype
         elif self.server_args.kv_cache_dtype == "fp8_e5m2":
-            if _is_hip:  # Using natively supported format
+            if False:  # Using natively supported format
                 self.kv_cache_dtype = fp8_dtype
             else:
                 self.kv_cache_dtype = torch.float8_e5m2
         elif self.server_args.kv_cache_dtype == "fp8_e4m3":
-            if _is_hip:  # Using natively supported format
+            if False:  # Using natively supported format
                 self.kv_cache_dtype = fp8_dtype
             else:
                 self.kv_cache_dtype = torch.float8_e4m3fn

@@ -32,8 +32,6 @@ from sglang.srt.speculative.spec_utils import (
 from sglang.srt.utils.common import is_cuda, is_hip, is_npu, next_power_of_2
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
-_is_npu = is_npu()
 
 if TYPE_CHECKING:
     from sglang.srt.managers.tp_worker import TpModelWorker
@@ -297,7 +295,7 @@ class EagleVerifyInputV2Mixin:
         accept_length = torch.empty((bs,), dtype=torch.int32, device=device)
 
         # Sample tokens
-        if sampling_info.is_all_greedy or _is_npu:
+        if sampling_info.is_all_greedy:
             target_predict = torch.argmax(next_token_logits, dim=-1)
             target_predict = target_predict.reshape(bs, self.draft_token_num)
             predict, accept_index, accept_length = verify_tree_greedy_func(
@@ -454,7 +452,7 @@ def assign_extend_cache_locs_func(
     draft_token_num: int,
     device,
 ) -> torch.Tensor:
-    if _is_cuda or _is_hip:
+    if _is_cuda:
         out_cache_loc = torch.empty(
             (batch_size * draft_token_num,),
             dtype=torch.int64,
@@ -468,22 +466,6 @@ def assign_extend_cache_locs_func(
             out_cache_loc,
             req_to_token.shape[1],
             next_power_of_2(batch_size),
-        )
-
-        return out_cache_loc
-
-    elif _is_npu:
-        out_cache_loc = torch.empty(
-            (batch_size * draft_token_num,),
-            dtype=torch.int32,
-            device=device,
-        )
-        torch.ops.npu.cache_loc_update(
-            req_pool_indices,
-            req_to_token,
-            start_offset,
-            end_offset,
-            out_cache_loc,
         )
 
         return out_cache_loc

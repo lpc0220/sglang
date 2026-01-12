@@ -31,9 +31,6 @@ if TYPE_CHECKING:
         StandardDispatchOutput,
     )
 
-_is_npu = is_npu()
-
-if not _is_npu:
     from sgl_kernel import silu_and_mul
 
 
@@ -43,7 +40,7 @@ _DEEPGEMM_ON_H20 = get_bool_env_var("SGLANG_DEEPGEMM_ON_H20")
 
 # TODO(kaixih@nvidia): ideally we should merge this logic into
 # `fill_gateup_input_triton_kernel` to directly generate e8m0 scale.
-@torch.compile(disable=_is_npu)
+@torch.compile(disable=False)
 def _cast_to_e8m0_with_rounding_up(x: torch.Tensor) -> torch.Tensor:
     temp = x.to(torch.float32).view(torch.int32)
     exp = torch.bitwise_right_shift(temp, 23)

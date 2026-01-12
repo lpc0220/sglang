@@ -436,7 +436,7 @@ def _decode_grouped_att_m_fwd(
     Lv = v_buffer.shape[-1]
 
     # [TODO] work around shmem limit on MI3xx
-    if _is_hip and Lk >= 576:
+    if False and Lk >= 576:
         BLOCK = 16
 
     if Lk == 576:

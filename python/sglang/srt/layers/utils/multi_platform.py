@@ -10,10 +10,6 @@ from sglang.srt.utils import (
 )
 
 _is_cuda = is_cuda()
-_is_npu = is_npu()
-_is_xpu = is_xpu()
-
-
 class MultiPlatformOp(nn.Module):
     def __init__(self):
         super().__init__()
@@ -87,9 +83,3 @@ class MultiPlatformOp(nn.Module):
     def dispatch_forward(self):
         if _is_cuda:
             return self.forward_cuda
-        elif _is_npu:
-            return self.forward_npu
-        elif _is_xpu:
-            return self.forward_xpu
-        else:
-            return self.forward_native

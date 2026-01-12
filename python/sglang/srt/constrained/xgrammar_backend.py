@@ -36,11 +36,6 @@ from sglang.srt.constrained.base_grammar_backend import (
 )
 from sglang.srt.constrained.utils import is_legacy_structural_tag
 from sglang.srt.utils import is_hip
-
-_is_hip = is_hip()
-if _is_hip:
-    from sgl_kernel import apply_token_bitmask_inplace_cuda
-else:
     from sglang.srt.constrained.triton_ops.bitmask_ops import (
         apply_token_bitmask_inplace_triton,
     )
@@ -109,10 +104,7 @@ class XGrammarGrammar(BaseGrammarObject):
             or logits.device.type == "npu"
             or logits.device.type == "xpu"
         ):
-            if _is_hip:
-                apply_token_bitmask_inplace_cuda(logits, vocab_mask)
-            else:
-                apply_token_bitmask_inplace_triton(logits, vocab_mask)
+                            apply_token_bitmask_inplace_triton(logits, vocab_mask)
         elif logits.device.type == "cpu" and self.apply_vocab_mask_cpu:
             self.apply_vocab_mask_cpu(logits, vocab_mask)
         else:

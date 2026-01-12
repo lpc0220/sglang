@@ -59,8 +59,6 @@ from sglang.srt.utils import is_npu, use_intel_amx_backend
 
 logger = logging.getLogger(__name__)
 
-_is_npu = is_npu()
-
 
 @dataclasses.dataclass
 class LogitsProcessorOutput:
@@ -954,8 +952,7 @@ class LogitsProcessor(nn.Module):
             logits = logits[:, : self.config.vocab_size].float()
 
         if self.final_logit_softcapping:
-            if not _is_npu:
-                fused_softcap(logits, self.final_logit_softcapping)
+                            fused_softcap(logits, self.final_logit_softcapping)
             else:
                 logits = self.final_logit_softcapping * torch.tanh(
                     logits / self.final_logit_softcapping
