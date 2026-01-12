@@ -78,8 +78,7 @@ from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.utils import (
     configure_logger,
     get_bool_env_var,
-    is_cuda_alike,
-    is_xpu,
+    is_cuda,
     kill_process_tree,
     maybe_reindex_device_id,
     require_mlp_sync,
@@ -92,8 +91,7 @@ from sglang.srt.utils.hf_transformers_utils import get_tokenizer
 profile_activities = [torch.profiler.ProfilerActivity.CPU] + [
     profiler_activity
     for available, profiler_activity in [
-        (is_cuda_alike(), torch.profiler.ProfilerActivity.CUDA),
-        (is_xpu(), torch.profiler.ProfilerActivity.XPU),
+        (is_cuda(), torch.profiler.ProfilerActivity.CUDA),
     ]
     if available
 ]
