@@ -46,7 +46,7 @@ from sglang.srt.utils import (
     get_current_device_stream_fast,
     get_int_env_var,
     get_local_ip_auto,
-    is_cuda_alike,
+    is_cuda,
     is_shm_available)
 from sglang.srt.utils.custom_op import register_custom_op
 TensorMetadata = namedtuple("TensorMetadata", ["device", "dtype", "size"])
@@ -249,7 +249,7 @@ class GroupCoordinator:
         assert self.cpu_group is not None
         assert self.device_group is not None
 
-        if is_cuda_alike():
+        if is_cuda():
             device_id = (
                 0 if envs.SGLANG_ONE_VISIBLE_DEVICE_PER_PROCESS.get() else local_rank
             )
