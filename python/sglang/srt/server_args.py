@@ -2604,11 +2604,8 @@ class ServerArgs:
             type=str,
             default=ServerArgs.model_impl,
             help="Which implementation of the model to use.\n\n"
-            '* "auto" will try to use the SGLang implementation if it exists '
-            "and fall back to the Transformers implementation if no SGLang "
-            "implementation is available.\n"
-            '* "sglang" will use the SGLang model implementation.\n'
-            '* "transformers" will use the Transformers model implementation.\n',
+            '* "auto" will use the native SGLang implementation.\n'
+            '* "sglang" will explicitly use the SGLang model implementation.\n',
         )
 
         # HTTP server

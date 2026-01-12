@@ -46,7 +46,6 @@ class AttentionArch(IntEnum):
 class ModelImpl(str, Enum):
     AUTO = "auto"
     SGLANG = "sglang"
-    TRANSFORMERS = "transformers"
 
 
 def is_deepseek_nsa(config: PretrainedConfig) -> bool:
