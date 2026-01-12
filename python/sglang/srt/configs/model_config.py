@@ -47,7 +47,6 @@ class ModelImpl(str, Enum):
     AUTO = "auto"
     SGLANG = "sglang"
     TRANSFORMERS = "transformers"
-    MINDSPORE = "mindspore"
 
 
 def is_deepseek_nsa(config: PretrainedConfig) -> bool:
@@ -804,11 +803,6 @@ class ModelConfig:
                 raise ValueError(
                     f"Unknown quantization method: {self.quantization}. Must "
                     f"be one of {supported_quantization}."
-                )
-            if is_hip() and self.quantization not in rocm_supported_quantization:
-                raise ValueError(
-                    f"{self.quantization} quantization is currently not "
-                    f"supported in ROCm."
                 )
             if self.quantization not in optimized_quantization_methods:
                 logger.warning(

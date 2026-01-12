@@ -26,13 +26,6 @@ if _is_cuda:
 else:
     FusedSetKVBufferArg = None
 
-if is_npu():
-    import torch_npu
-
-    NPU_ROTARY_MUL_MAX_NUM_HEADS = 1000
-    NPU_ROTARY_MUL_MAX_HEAD_SIZE = 896
-
-
 def _rotate_neox(x: torch.Tensor) -> torch.Tensor:
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]

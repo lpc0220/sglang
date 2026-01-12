@@ -364,7 +364,7 @@ class PiecewiseCudaGraphRunner:
             )
 
     def _cache_loc_dtype(self):
-        return torch.int64 if not is_npu() else torch.int32
+        return torch.int64
 
     def can_run(self, forward_batch: ForwardBatch):
         num_tokens = len(forward_batch.input_ids)

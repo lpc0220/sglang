@@ -692,7 +692,8 @@ class ServerArgs:
         self._handle_sampling_backend()
         self._handle_attention_backend_compatibility()
         self._handle_kv4_compatibility()
-        self._handle_page_size()        self._handle_grammar_backend()
+        self._handle_page_size()
+        self._handle_grammar_backend()
 
         # Handle Hicache settings.
         self._handle_hicache()
@@ -1086,74 +1087,73 @@ class ServerArgs:
                     self.attention_backend = "nsa"
                     logger.info("Use nsa attention backend for DeepSeek with DSA.")
 
-                if not is_npu():  # CUDA GPU
-                    if self.enable_nsa_prefill_context_parallel:
+                if self.enable_nsa_prefill_context_parallel:
+                    logger.warning(
+                        f"Context parallel feature is still under experiment. It has only been verified on Hopper platform."
+                    )
+                    if self.nsa_prefill_cp_mode == "in-seq-split":
+                        # TODO Supports moe_dense_tp_size != 1, kv cache dtype = "fp8",moe_a2a_backend non-deepep and cross-machine operation .
+                        self.enable_dp_attention = True
+                        self.moe_dense_tp_size = 1
+                        self.moe_a2a_backend = "deepep"
+                        self.ep_size = self.tp_size
+                        self.kv_cache_dtype = "bf16"
                         logger.warning(
-                            f"Context parallel feature is still under experiment. It has only been verified on Hopper platform."
+                            f"For in-seq split mode, we have the following restrictions: moe_dense_tp_size == 1, moe_a2a_backend == deepep, ep_size == tp_size, kv_cache_dtype == bf16, batch_size == 1"
                         )
-                        if self.nsa_prefill_cp_mode == "in-seq-split":
-                            # TODO Supports moe_dense_tp_size != 1, kv cache dtype = "fp8",moe_a2a_backend non-deepep and cross-machine operation .
-                            self.enable_dp_attention = True
-                            self.moe_dense_tp_size = 1
-                            self.moe_a2a_backend = "deepep"
-                            self.ep_size = self.tp_size
-                            self.kv_cache_dtype = "bf16"
-                            logger.warning(
-                                f"For in-seq split mode, we have the following restrictions: moe_dense_tp_size == 1, moe_a2a_backend == deepep, ep_size == tp_size, kv_cache_dtype == bf16, batch_size == 1"
-                            )
-                        else:
-                            self.enable_dp_attention = True
-                            self.moe_dense_tp_size = 1
-                            assert (
-                                self.dp_size == 1
-                            ), "For round-robin split mode, dp attention is not supported."
+                    else:
+                        self.enable_dp_attention = True
+                        self.moe_dense_tp_size = 1
                         assert (
-                            self.tp_size == 8
-                        ), "Current multi-machine CP support suffers from precision issues. So context parallel only support Single machine(tp_size == 8)"
+                            self.dp_size == 1
+                        ), "For round-robin split mode, dp attention is not supported."
+                    assert (
+                        self.tp_size == 8
+                    ), "Current multi-machine CP support suffers from precision issues. So context parallel only support Single machine(tp_size == 8)"
 
+                    logger.warning(
+                        f"Enable Context Parallel opt for deeeseekv3.2-DSA, Setting dp_size == {self.dp_size} and moe_dense_tp_size == {self.moe_dense_tp_size}, ep_size == {self.ep_size}, tp_size == {self.tp_size}, kv_cache_dtype == {self.kv_cache_dtype}, moe_a2a_backend {self.moe_a2a_backend} "
+                    )
+                else:
+                    # Pure TP and partial DP Attention mode is active for NSA, logging a warning
+                    if self.dp_size < self.tp_size:
                         logger.warning(
-                            f"Enable Context Parallel opt for deeeseekv3.2-DSA, Setting dp_size == {self.dp_size} and moe_dense_tp_size == {self.moe_dense_tp_size}, ep_size == {self.ep_size}, tp_size == {self.tp_size}, kv_cache_dtype == {self.kv_cache_dtype}, moe_a2a_backend {self.moe_a2a_backend} "
+                            f"DSA with TP mode is active, dp_size={self.dp_size}, tp_size={self.tp_size}, "
+                            f"attn_tp_size={self.tp_size}, attention weights will be sharded across {self.tp_size} ranks."
                         )
-                    else:
-                        # Pure TP and partial DP Attention mode is active for NSA, logging a warning
-                        if self.dp_size < self.tp_size:
-                            logger.warning(
-                                f"DSA with TP mode is active, dp_size={self.dp_size}, tp_size={self.tp_size}, "
-                                f"attn_tp_size={self.tp_size}, attention weights will be sharded across {self.tp_size} ranks."
-                            )
 
-                    self.page_size = 64
-                    logger.warning("Setting page size to 64 for DeepSeek DSA.")
+                self.page_size = 64
+                logger.warning("Setting page size to 64 for DeepSeek DSA.")
 
-                    # For Hopper, we support both bf16 and fp8 kv cache; for Blackwell, we support fp8 only currently
-                    import torch
+                # For Hopper, we support both bf16 and fp8 kv cache; for Blackwell, we support fp8 only currently
+                import torch
 
-                    major, _ = torch.cuda.get_device_capability()
-                    if self.kv_cache_dtype == "auto":
-                        self.kv_cache_dtype = "fp8_e4m3" if major >= 10 else "bfloat16"
-                        logger.warning(
-                            f"Setting KV cache dtype to {self.kv_cache_dtype} for DeepSeek DSA on SM{major} device."
-                        )
-                    if self.kv_cache_dtype == "bf16":
-                        self.kv_cache_dtype = "bfloat16"
-                    assert self.kv_cache_dtype in [
-                        "bfloat16",
-                        "fp8_e4m3",
-                    ], "DeepSeek DSA only supports bf16/bfloat16 or fp8_e4m3 kv_cache_dtype"
+                major, _ = torch.cuda.get_device_capability()
+                if self.kv_cache_dtype == "auto":
+                    self.kv_cache_dtype = "fp8_e4m3" if major >= 10 else "bfloat16"
+                    logger.warning(
+                        f"Setting KV cache dtype to {self.kv_cache_dtype} for DeepSeek DSA on SM{major} device."
+                    )
+                if self.kv_cache_dtype == "bf16":
+                    self.kv_cache_dtype = "bfloat16"
+                assert self.kv_cache_dtype in [
+                    "bfloat16",
+                    "fp8_e4m3",
+                ], "DeepSeek DSA only supports bf16/bfloat16 or fp8_e4m3 kv_cache_dtype"
 
-                    if self.kv_cache_dtype == "fp8_e4m3":
-                        # flashmla_auto dispatches to flashmla_sparse/flashmla_kv based on hardware and heuristics
-                        self.nsa_prefill_backend = "flashmla_auto"
-                        self.nsa_decode_backend = "flashmla_kv"
-                        logger.warning(
-                            "Setting DSA backend to flashmla_auto for prefill and flashmla_kv for decode for FP8 KV Cache."
-                        )
-                    else:
-                        # set prefill/decode backends to flashmla_sparse for Blackwell.
-                        # The default settings (P=flashmla_sparse, D=fa3) are for Hopper.
-                        if major >= 10:
-                            self.nsa_prefill_backend = "flashmla_sparse"
-                            self.nsa_decode_backend = "flashmla_sparse"
+                if self.kv_cache_dtype == "fp8_e4m3":
+                    # flashmla_auto dispatches to flashmla_sparse/flashmla_kv based on hardware and heuristics
+                    self.nsa_prefill_backend = "flashmla_auto"
+                    self.nsa_decode_backend = "flashmla_kv"
+                    logger.warning(
+                        "Setting DSA backend to flashmla_auto for prefill and flashmla_kv for decode for FP8 KV Cache."
+                    )
+                else:
+                    # set prefill/decode backends to flashmla_sparse for Blackwell.
+                    # The default settings (P=flashmla_sparse, D=fa3) are for Hopper.
+                    if major >= 10:
+                        self.nsa_prefill_backend = "flashmla_sparse"
+                        self.nsa_decode_backend = "flashmla_sparse"
 
                 if self.enable_nsa_prefill_context_parallel:
                     assert (
@@ -2429,13 +2429,12 @@ class ServerArgs:
 
             # Check TP size
             if self.tp_size > 1:
-                else:
-                    # CUDA: use NCCL tree algorithm
-                    os.environ["NCCL_ALGO"] = "allreduce:tree"
-                    self.disable_custom_all_reduce = True
-                    logger.warning(
-                        "NCCL_ALGO is set to 'allreduce:tree' and custom all reduce is disabled for deterministic inference when TP size > 1."
-                    )
+                # CUDA: use NCCL tree algorithm
+                os.environ["NCCL_ALGO"] = "allreduce:tree"
+                self.disable_custom_all_reduce = True
+                logger.warning(
+                    "NCCL_ALGO is set to 'allreduce:tree' and custom all reduce is disabled for deterministic inference when TP size > 1."
+                )
 
     def _handle_dllm_inference(self):
         if self.dllm_algorithm is None:
@@ -2609,9 +2608,7 @@ class ServerArgs:
             "and fall back to the Transformers implementation if no SGLang "
             "implementation is available.\n"
             '* "sglang" will use the SGLang model implementation.\n'
-            '* "transformers" will use the Transformers model '
-            '* "mindspore" will use the MindSpore model '
-            "implementation.\n",
+            '* "transformers" will use the Transformers model implementation.\n',
         )
 
         # HTTP server
@@ -4776,9 +4773,6 @@ class ServerArgs:
         assert (
             self.schedule_conservativeness >= 0
         ), "schedule_conservativeness must be non-negative"
-
-        if self.model_impl == "mindspore":
-            assert is_npu(), "MindSpore model impl is only supported on Ascend npu."
 
         # Check metrics labels
         if (

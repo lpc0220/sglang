@@ -336,9 +336,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         if envs.SGLANG_DETECT_SLOW_RANK.get():
             slow_rank_detector.execute()
 
-        # Init mindspore running environment when model impl is "mindspore"
-        self.init_mindspore_runner()
-
         # Update deep gemm configure
         if deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM:
             deep_gemm_wrapper.update_deep_gemm_config(gpu_id, server_args)
@@ -360,20 +357,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         # For weight updates
         self._model_update_group = {}
         self._weights_send_group = {}
-
-    def init_mindspore_runner(self):
-        # Init the mindspore runner
-        # for now, there is only some communication initialization work
-        if False:  # NPU removed
-            from sglang.srt.model_executor.mindspore_runner import init_ms_distributed
-
-            init_ms_distributed(
-                world_size=self.tp_size * self.pp_size,
-                rank=self.tp_size * self.pp_rank + self.tp_rank,
-                local_rank=self.gpu_id,
-                server_args=self.server_args,
-                port=self.dist_port,
-            )
 
     def initialize(self, min_per_gpu_memory: float):
         server_args = self.server_args
@@ -1909,9 +1892,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
 
         if not self.is_generation:
             # TODO: Currently, cuda graph only captures decode steps, which only exists for generation models
-            return
-
-        if self.server_args.model_impl.lower() == ModelImpl.MINDSPORE:
             return
 
         if self.device != "cpu" and self.server_args.disable_cuda_graph:
