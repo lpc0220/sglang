@@ -282,7 +282,6 @@ set(SOURCES
     "csrc/elementwise/rope.cu"
     "csrc/elementwise/pos_enc.cu"
     "csrc/elementwise/topk.cu"
-    "csrc/sgl_diffusion/elementwise/timestep_embedding.cu"
     "csrc/expert_specialization/es_fp8_blockwise.cu"
     "csrc/expert_specialization/es_sm100_mxfp8_blockscaled.cu"
     "csrc/expert_specialization/es_sm100_mxfp8_blockscaled_group_quant.cu"
@@ -311,10 +310,8 @@ set(SOURCES
     "csrc/gemm/marlin/gptq_marlin_repack.cu"
     "csrc/gemm/marlin/awq_marlin_repack.cu"
     "csrc/gemm/gptq/gptq_kernel.cu"
-    "csrc/grammar/apply_token_bitmask_inplace_cuda.cu"
 
     "csrc/kvcacheio/transfer.cu"
-    "csrc/mamba/causal_conv1d.cu"
     "csrc/memory/store.cu"
     "csrc/memory/weak_ref_tensor.cpp"
 
@@ -334,7 +331,6 @@ set(SOURCES
     "csrc/moe/fp8_blockwise_moe_kernel.cu"
     "csrc/moe/prepare_moe_input.cu"
 
-    "csrc/quantization/gguf/gguf_kernel.cu"
     "csrc/speculative/eagle_utils.cu"
     "csrc/speculative/ngram_utils.cu"
     "csrc/speculative/packbit.cu"
