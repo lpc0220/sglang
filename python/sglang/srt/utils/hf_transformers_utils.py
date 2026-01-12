@@ -43,53 +43,16 @@ from transformers import (
 )
 from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
-from sglang.srt.configs import (
-    ChatGLMConfig,
-    DbrxConfig,
-    DotsOCRConfig,
-    DotsVLMConfig,
-    ExaoneConfig,
-    FalconH1Config,
-    JetNemotronConfig,
-    JetVLMConfig,
-    KimiLinearConfig,
-    KimiVLConfig,
-    LongcatFlashConfig,
-    MultiModalityConfig,
-    NemotronH_Nano_VL_V2_Config,
-    NemotronHConfig,
-    Olmo3Config,
-    Qwen3NextConfig,
-    Step3VLConfig,
-)
-from sglang.srt.configs.internvl import InternVLChatConfig
+# Note: All non-DeepSeek model configs have been removed
+# DeepSeek models use standard transformers PretrainedConfig
 from sglang.srt.connector import create_remote_connector
 from sglang.srt.multimodal.customized_mm_processor_utils import _CUSTOMIZED_MM_PROCESSOR
-from sglang.srt.utils import is_remote_url, logger, lru_cache_frozenset, mistral_utils
+from sglang.srt.utils import is_remote_url, logger, lru_cache_frozenset
 from sglang.srt.utils.patch_tokenizer import patch_tokenizer
 
-_CONFIG_REGISTRY: List[Type[PretrainedConfig]] = [
-    ChatGLMConfig,
-    DbrxConfig,
-    ExaoneConfig,
-    DeepseekVL2Config,
-    MultiModalityConfig,
-    KimiVLConfig,
-    InternVLChatConfig,
-    Step3VLConfig,
-    LongcatFlashConfig,
-    Olmo3Config,
-    KimiLinearConfig,
-    Qwen3NextConfig,
-    FalconH1Config,
-    DotsVLMConfig,
-    DotsOCRConfig,
-    NemotronH_Nano_VL_V2_Config,
-    NemotronHConfig,
-    DeepseekVLV2Config,
-    JetNemotronConfig,
-    JetVLMConfig,
-]
+# Config registry for custom model configs
+# DeepSeek models use standard transformers configs, so registry is empty
+_CONFIG_REGISTRY: List[Type[PretrainedConfig]] = []
 
 _CONFIG_REGISTRY = {
     config_cls.model_type: config_cls for config_cls in _CONFIG_REGISTRY
@@ -190,35 +153,7 @@ def _load_deepseek_v32_model(
     )
 
 
-# Temporary hack for Mistral Large
-def _load_mistral_large_3_for_causal_LM(
-    model_path: str,
-    trust_remote_code: bool = False,
-    revision: Optional[str] = None,
-    **kwargs,
-):
-    # first get the local path
-    local_path = download_from_hf(model_path)
-    # then load the config file in json
-    parser = mistral_utils.MistralConfigParser()
-    config_dict, _ = parser.parse(local_path)
-
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".json") as f:
-        json.dump(config_dict, f)
-        f.flush()
-        loaded_config = AutoConfig.from_pretrained(
-            f.name, trust_remote_code=trust_remote_code, revision=revision, **kwargs
-        )
-    text_config = getattr(loaded_config, "text_config", None)
-    if text_config is not None and isinstance(text_config, dict):
-        text_config = AutoConfig.for_model(**text_config)
-        setattr(loaded_config, "text_config", text_config)
-    vision_config = getattr(loaded_config, "vision_config", None)
-    if vision_config is not None and isinstance(vision_config, dict):
-        vision_config = AutoConfig.for_model(**vision_config)
-        setattr(loaded_config, "vision_config", vision_config)
-
-    return loaded_config
+# Mistral Large support removed - DeepSeek models only
 
 
 @lru_cache_frozenset(maxsize=32)
@@ -242,42 +177,17 @@ def get_config(
         client.pull_files(ignore_pattern=["*.pt", "*.safetensors", "*.bin"])
         model = client.get_local_dir()
 
-    if "mistral-large-3" in str(model).lower():
-        config = _load_mistral_large_3_for_causal_LM(
+    # Load config - support DeepSeek models (including v3.2 variant)
+    try:
+        config = AutoConfig.from_pretrained(
             model, trust_remote_code=trust_remote_code, revision=revision, **kwargs
         )
-    else:
-        try:
-            config = AutoConfig.from_pretrained(
-                model, trust_remote_code=trust_remote_code, revision=revision, **kwargs
-            )
-        except ValueError as e:
-            if not "deepseek_v32" in str(e):
-                raise e
-            config = _load_deepseek_v32_model(
-                model, trust_remote_code=trust_remote_code, revision=revision, **kwargs
-            )
-
-    if (
-        config.architectures is not None
-        and config.architectures[0] == "Phi4MMForCausalLM"
-    ):
-        # Phi4MMForCausalLM uses a hard-coded vision_config. See:
-        # https://github.com/vllm-project/vllm/blob/6071e989df1531b59ef35568f83f7351afb0b51e/vllm/model_executor/models/phi4mm.py#L71
-        # We set it here to support cases where num_attention_heads is not divisible by the TP size.
-        from transformers import SiglipVisionConfig
-
-        vision_config = {
-            "hidden_size": 1152,
-            "image_size": 448,
-            "intermediate_size": 4304,
-            "model_type": "siglip_vision_model",
-            "num_attention_heads": 16,
-            "num_hidden_layers": 26,
-            # Model is originally 27-layer, we only need the first 26 layers for feature extraction.
-            "patch_size": 14,
-        }
-        config.vision_config = SiglipVisionConfig(**vision_config)
+    except ValueError as e:
+        if not "deepseek_v32" in str(e):
+            raise e
+        config = _load_deepseek_v32_model(
+            model, trust_remote_code=trust_remote_code, revision=revision, **kwargs
+        )
     text_config = get_hf_text_config(config=config)
 
     if isinstance(model, str) and text_config is not None:
@@ -285,21 +195,12 @@ def get_config(
             if not hasattr(config, key) and getattr(text_config, key, None) is not None:
                 setattr(config, key, val)
 
+    # Custom config registry processing (currently empty for DeepSeek-only codebase)
     if config.model_type in _CONFIG_REGISTRY:
         model_type = config.model_type
         config_class = _CONFIG_REGISTRY[model_type]
         config = config_class.from_pretrained(model, revision=revision)
-
-        # NOTE(HandH1998): Qwen2VL requires `_name_or_path` attribute in `config`.
         setattr(config, "_name_or_path", model)
-
-    if isinstance(model, str) and config.model_type == "internvl_chat":
-        for key, val in config.llm_config.__dict__.items():
-            if not hasattr(config, key):
-                setattr(config, key, val)
-
-    if config.model_type == "multi_modality":
-        config.update({"architectures": ["MultiModalityCausalLM"]})
 
     if model_override_args:
         config.update(model_override_args)
@@ -382,10 +283,6 @@ def get_context_length(config):
     return 2048
 
 
-# A fast LLaMA tokenizer with the pre-processed `tokenizer.json` file.
-_FAST_LLAMA_TOKENIZER = "hf-internal-testing/llama-tokenizer"
-
-
 # Filter warnings like: https://github.com/sgl-project/sglang/issues/8082
 class TokenizerWarningsFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -410,10 +307,6 @@ def get_tokenizer(
         if kwargs.get("use_fast", False):
             raise ValueError("Cannot use the fast tokenizer in slow tokenizer mode.")
         kwargs["use_fast"] = False
-
-    # TODO(Xinyuan): Remove this once we have a proper tokenizer for Devstral
-    if tokenizer_name == "mistralai/Devstral-Small-2505":
-        tokenizer_name = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
 
     is_gguf = check_gguf_file(tokenizer_name)
     if is_gguf:
@@ -442,12 +335,8 @@ def get_tokenizer(
             TokenizerWarningsFilter()
         )
     except TypeError as e:
-        # The LLaMA tokenizer causes a protobuf error in some environments.
-        err_msg = (
-            "Failed to load the tokenizer. If you are using a LLaMA V1 model "
-            f"consider using '{_FAST_LLAMA_TOKENIZER}' instead of the "
-            "original tokenizer."
-        )
+        # Tokenizer loading error
+        err_msg = "Failed to load the tokenizer. Please check the model path and tokenizer configuration."
         raise RuntimeError(err_msg) from e
     except ValueError as e:
         # If the error pertains to the tokenizer class not existing or not
@@ -495,31 +384,20 @@ def get_processor(
 ):
     # pop 'revision' from kwargs if present.
     revision = kwargs.pop("revision", tokenizer_revision)
-    if "mistral-large-3" in str(tokenizer_name).lower():
-        config = _load_mistral_large_3_for_causal_LM(
-            tokenizer_name,
-            trust_remote_code=trust_remote_code,
-            revision=revision,
-            **kwargs,
-        )
-    else:
-        config = AutoConfig.from_pretrained(
-            tokenizer_name,
-            trust_remote_code=trust_remote_code,
-            revision=revision,
-            **kwargs,
-        )
+    config = AutoConfig.from_pretrained(
+        tokenizer_name,
+        trust_remote_code=trust_remote_code,
+        revision=revision,
+        **kwargs,
+    )
 
-    # fix: for Qwen2-VL and Sarashina2Vision models, inject default 'size' if not provided.
-    if config.model_type in {"qwen2_vl", "sarashina2_vision"}:
-        if "size" not in kwargs:
-            kwargs["size"] = {"shortest_edge": 3136, "longest_edge": 1003520}
+    # Use fast tokenizer by default
+    kwargs["use_fast"] = use_fast
 
-    if config.model_type not in {"llava", "clip"}:
-        kwargs["use_fast"] = use_fast
     try:
-        if "InternVL3_5" in tokenizer_name:
-            processor = AutoTokenizer.from_pretrained(
+        # Use customized processor if available, otherwise use AutoProcessor
+        if config.model_type in _CUSTOMIZED_MM_PROCESSOR:
+            processor = _CUSTOMIZED_MM_PROCESSOR[config.model_type].from_pretrained(
                 tokenizer_name,
                 *args,
                 trust_remote_code=trust_remote_code,
@@ -527,22 +405,13 @@ def get_processor(
                 **kwargs,
             )
         else:
-            if config.model_type in _CUSTOMIZED_MM_PROCESSOR:
-                processor = _CUSTOMIZED_MM_PROCESSOR[config.model_type].from_pretrained(
-                    tokenizer_name,
-                    *args,
-                    trust_remote_code=trust_remote_code,
-                    revision=revision,
-                    **kwargs,
-                )
-            else:
-                processor = AutoProcessor.from_pretrained(
-                    tokenizer_name,
-                    *args,
-                    trust_remote_code=trust_remote_code,
-                    revision=revision,
-                    **kwargs,
-                )
+            processor = AutoProcessor.from_pretrained(
+                tokenizer_name,
+                *args,
+                trust_remote_code=trust_remote_code,
+                revision=revision,
+                **kwargs,
+            )
 
     except ValueError as e:
         error_message = str(e)
@@ -567,13 +436,8 @@ def get_processor(
 
 
 def attach_additional_stop_token_ids(tokenizer):
-    # Special handling for stop token <|eom_id|> generated by llama 3 tool use.
-    if "<|eom_id|>" in tokenizer.get_added_vocab():
-        tokenizer.additional_stop_token_ids = set(
-            [tokenizer.get_added_vocab()["<|eom_id|>"]]
-        )
-    else:
-        tokenizer.additional_stop_token_ids = None
+    # Additional stop token IDs (LLaMA 3 removed, DeepSeek models use standard tokens)
+    tokenizer.additional_stop_token_ids = None
 
 
 def check_gguf_file(model: Union[str, os.PathLike]) -> bool:

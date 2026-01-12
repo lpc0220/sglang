@@ -30,14 +30,8 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
-from sglang.srt.configs import (
-    FalconH1Config,
-    JetNemotronConfig,
-    JetVLMConfig,
-    KimiLinearConfig,
-    NemotronH_Nano_VL_V2_Config,
-    NemotronHConfig,
-    Qwen3NextConfig)
+# Note: All non-DeepSeek model configs have been removed
+# from sglang.srt.configs import ...
 from sglang.srt.configs.device_config import DeviceConfig
 from sglang.srt.configs.load_config import LoadConfig, LoadFormat
 from sglang.srt.configs.model_config import AttentionArch, ModelConfig, ModelImpl
@@ -1330,25 +1324,17 @@ class ModelRunner(ModelRunnerKVCacheMixin):
 
     @property
     def qwen3_next_config(self):
-        config = self.model_config.hf_config
-        if isinstance(config, Qwen3NextConfig):
-            return config
+        # Qwen3Next removed - DeepSeek models only
         return None
 
     @property
     def hybrid_gdn_config(self):
-        config = self.model_config.hf_config
-        if isinstance(config, Qwen3NextConfig | JetNemotronConfig | JetVLMConfig):
-            return config
+        # Hybrid GDN models removed - DeepSeek models only
         return None
 
     @property
     def mamba2_config(self):
-        config = self.model_config.hf_config
-        if isinstance(config, FalconH1Config | NemotronHConfig):
-            return config
-        if isinstance(config, NemotronH_Nano_VL_V2_Config):
-            return config.llm_config
+        # Mamba2 models removed - DeepSeek models only
         return None
 
     @property
@@ -1361,9 +1347,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
 
     @property
     def kimi_linear_config(self):
-        config = self.model_config.hf_config
-        if isinstance(config, KimiLinearConfig):
-            return config
+        # Kimi Linear removed - DeepSeek models only
         return None
 
     @property
