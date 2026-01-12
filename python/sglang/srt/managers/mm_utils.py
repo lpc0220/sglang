@@ -19,13 +19,12 @@ from sglang.srt.managers.schedule_batch import (
     CudaIpcTensorTransportProxy,
     Modality,
     MultimodalDataItem,
-    MultimodalInputs,
-)
+    MultimodalInputs)
 from sglang.srt.mem_cache.multimodal_cache import EmbeddingResult, MultiModalStaticCache
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.multimodal.evs import EVSEmbeddingResult
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import flatten_nested_list, is_npu, print_warning_once
+from sglang.srt.utils import flatten_nested_list, print_warning_once
 from sglang.utils import logger
 
 # NOTE: Using the shared logger from sglang.utils instead of creating a module-specific logger
@@ -108,8 +107,7 @@ class TransportProxyTensor(torch.Tensor):
         fields: Optional[Dict[str, Any]] = None,
         transport_mode: TensorTransportMode = "default",
         *args,
-        **kwargs,
-    ):
+        **kwargs):
 
         if not isinstance(data, torch.Tensor):
             raise TypeError(
@@ -178,8 +176,7 @@ class TransportProxyTensor(torch.Tensor):
                 ipc_extra["dtype"],
                 ipc_extra["stride"],
                 ipc_extra["device_index"],
-                ipc_extra["storage_offset"],
-            )
+                ipc_extra["storage_offset"])
 
             try:
                 target_device = torch.device(f"cuda:{source_device_index}")
@@ -241,8 +238,7 @@ class MultiModalityDataPaddingPatternTokenPairs(MultiModalityDataPaddingPattern)
     def __init__(
         self,
         data_token_pairs: Optional[List[Tuple[int, int]]],
-        data_start_token_ids: Optional[List[int]] = None,
-    ) -> None:
+        data_start_token_ids: Optional[List[int]] = None) -> None:
         """
 
         Args:
@@ -379,8 +375,7 @@ def get_embedding_chunk(
     embedding: torch.Tensor,
     extend_prefix_len: int,
     extend_seq_len: int,
-    items_offset: List[Tuple[int, int]],
-) -> Tuple[torch.Tensor, int, int]:
+    items_offset: List[Tuple[int, int]]) -> Tuple[torch.Tensor, int, int]:
     """
     Extract a chunk of embeddings based on the specified prefix length, sequence length, and offset ranges.
 
@@ -424,8 +419,7 @@ def _get_precomputed_embedding(
     items: List[MultimodalDataItem],
     prefix_length: List[int],
     extend_length: List[int],
-    items_offset_list: List[List[Tuple[int, int]]],
-) -> Optional[torch.Tensor]:
+    items_offset_list: List[List[Tuple[int, int]]]) -> Optional[torch.Tensor]:
     """
     If all items have precomputed_embeddings, return their concatenation.
     If some but not all have precomputed_embeddings, raise NotImplementedError.
@@ -453,8 +447,7 @@ def _get_precomputed_embedding(
                         mm_end_idx - seq_start_idx + 1,
                         seq_end_idx - mm_start_idx + 1,
                         mm_end_idx - mm_start_idx + 1,
-                        seq_end_idx - seq_start_idx + 1,
-                    )
+                        seq_end_idx - seq_start_idx + 1)
                 )
         prefix_embedding_length = int(np.sum(prefix_embedding_length))
         extend_embedding_length = int(np.sum(extend_embedding_length))
@@ -486,8 +479,7 @@ def get_embedding_items_per_chunk_with_extra_padding(
     embedding_items_per_req: List["MultimodalDataItem"],
     extend_prefix_len: int,
     extend_seq_len: int,
-    items_offset: List[Tuple[int, int]],
-) -> List["MultimodalDataItem"]:
+    items_offset: List[Tuple[int, int]]) -> List["MultimodalDataItem"]:
     """
     From all multimodal items of a request, select the subset that is "relevant to
     this prefill chunk", and allow a small amount of extra padding on both sides
@@ -550,8 +542,7 @@ def _get_chunked_prefill_embedding(
     prefix_length: List[int],
     extend_length: List[int],
     items_offset_list: List[List[Tuple[int, int]]],
-    input_ids: torch.Tensor,
-) -> tuple[torch.Tensor | None, torch.Tensor]:
+    input_ids: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor]:
     # Calculate embedding for each request, try to get it from cache to avoid repeated calculation
     embedding_list = []
     # FIXME(Xinyuan): temporary workaround for eagle3, which may have len(items_size) > len(prefix_length)
@@ -594,16 +585,14 @@ def _get_chunked_prefill_embedding(
                     items_offset,
                     item=item,
                     extend_prefix_len=extend_prefix_len,
-                    extend_seq_len=extend_seq_len,
-                )
+                    extend_seq_len=extend_seq_len)
             )
 
         embedding_per_req_chunk, _, _ = get_embedding_chunk(
             embedding=embedding_per_req.embedding,
             extend_prefix_len=extend_prefix_len,
             extend_seq_len=extend_seq_len,
-            items_offset=items_offset,
-        )
+            items_offset=items_offset)
         embedding_list.append(embedding_per_req_chunk)
     if len(embedding_list) == 0:
         return None, input_ids
@@ -614,8 +603,7 @@ def get_embedding_chunk_remove_extra_padding(
     embedding: torch.Tensor,
     extend_prefix_len: int,
     extend_seq_len: int,
-    items_offset: List[Tuple[int, int]],
-) -> Tuple[Optional[torch.Tensor], int, int]:
+    items_offset: List[Tuple[int, int]]) -> Tuple[Optional[torch.Tensor], int, int]:
     """
     From the embedding computed on "items related to this chunk + extra padding",
     trim out the token embeddings that are not needed for the current chunk, and
@@ -728,8 +716,7 @@ def _get_chunked_prefill_embedding_for_chunked_items(
     items_size: List[int],
     prefix_length: List[int],
     extend_length: List[int],
-    items_offset_list: List[List[Tuple[int, int]]],
-) -> Optional[torch.Tensor]:
+    items_offset_list: List[List[Tuple[int, int]]]) -> Optional[torch.Tensor]:
     """
     Multi-modal embedding computation for chunked prefill.
 
@@ -763,8 +750,7 @@ def _get_chunked_prefill_embedding_for_chunked_items(
             embedding_items_per_req,
             extend_prefix_len=prefix_length[i],
             extend_seq_len=extend_length[i] if i < len(extend_length) else 0,
-            items_offset=items_offset,
-        )
+            items_offset=items_offset)
 
         if not embedding_items_per_chunk:
             continue
@@ -821,8 +807,7 @@ def _get_multimodal_mask(
 def _adjust_embedding_length(
     embedding: torch.Tensor,
     mask: torch.Tensor,
-    logger,
-) -> torch.Tensor:
+    logger) -> torch.Tensor:
     num_mm_tokens_in_embedding = embedding.shape[0]
     num_mm_tokens_in_input_ids = mask.sum().item()
     if num_mm_tokens_in_input_ids != num_mm_tokens_in_embedding:
@@ -858,8 +843,7 @@ def get_embedding_and_mask(
     items_size: List[int],
     prefix_length: List[int],
     extend_length: List[int],
-    items_offset_list: List[List[Tuple[int, int]]],
-) -> Tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor]:
+    items_offset_list: List[List[Tuple[int, int]]]) -> Tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor]:
     """
     Generate multimodal embeddings and create a mask for identifying their positions in the input sequence.
 
@@ -891,8 +875,7 @@ def get_embedding_and_mask(
             prefix_length,
             extend_length,
             items_offset_list,
-            input_ids,
-        )
+            input_ids)
         if embedding is None:
             return None, None, input_ids
     # 2. Get mask
@@ -902,8 +885,7 @@ def get_embedding_and_mask(
         input_ids=None,
         forward_batch=forward_batch,
         input_embeds=input_embeds,
-        **kwargs,
-    )
+        **kwargs)
     return hidden_states
 
 
@@ -930,8 +912,8 @@ def get_multimodal_data_bounds(
         input_ids, torch.as_tensor(end_tokens, device=input_ids.device)
     )
 
-    (data_start_tokens,) = torch.where(start_cond)
-    (data_end_tokens,) = torch.where(end_cond)
+    (data_start_tokens) = torch.where(start_cond)
+    (data_end_tokens) = torch.where(end_cond)
 
     data_start_tokens_cpu = data_start_tokens.cpu().tolist()
     data_end_tokens_cpu = data_end_tokens.cpu().tolist()
@@ -1037,7 +1019,7 @@ def extend_mrope_positions_for_retracted_request(
 
     # Get the last position value corresponding to origin_input_ids
     # mrope_positions shape: (3, origin_input_ids_len)
-    last_position = mrope_positions[:, -1]  # shape: (3,)
+    last_position = mrope_positions[:, -1]  # shape: (3)
 
     # Generate pure text mrope positions for output_ids
     # All three dimensions for pure text are the same incremental sequence
@@ -1047,8 +1029,7 @@ def extend_mrope_positions_for_retracted_request(
             start_pos,
             start_pos + output_ids_len,
             dtype=torch.int64,
-            device=mrope_positions.device,
-        )
+            device=mrope_positions.device)
         .unsqueeze(0)
         .expand(3, -1)
     )  # shape: (3, output_ids_len)
@@ -1090,8 +1071,7 @@ def _slice_model_data(
     start: int,
     end: int,
     num_items: int,
-    total_feature_len: Optional[int],
-):
+    total_feature_len: Optional[int]):
     sliced = {}
     for key, value in data.items():
         length = _get_length(value)
@@ -1153,8 +1133,7 @@ def get_new_expanded_mm_items(original_mm_items):
                         start=start,
                         end=end,
                         num_items=num_items,
-                        total_feature_len=total_feature_len,
-                    )
+                        total_feature_len=total_feature_len)
                     new_item.hash = None
                     expanded_mm_items.append(new_item)
 
@@ -1223,12 +1202,10 @@ def get_new_expanded_mm_items(original_mm_items):
                 for video_idx in range(num_videos):
                     start, end = (
                         slice_indices[video_idx],
-                        slice_indices[video_idx + 1],
-                    )
+                        slice_indices[video_idx + 1])
                     frame_start, frame_end = (
                         frame_start_indices[video_idx],
-                        frame_start_indices[video_idx + 1],
-                    )
+                        frame_start_indices[video_idx + 1])
 
                     new_item = copy.deepcopy(item)
                     if item.feature is not None:
@@ -1246,8 +1223,7 @@ def get_new_expanded_mm_items(original_mm_items):
                         start=start,
                         end=end,
                         num_items=num_videos,
-                        total_feature_len=total_feature_len,
-                    )
+                        total_feature_len=total_feature_len)
                     new_item.hash = None
                     expanded_mm_items.append(new_item)
             else:

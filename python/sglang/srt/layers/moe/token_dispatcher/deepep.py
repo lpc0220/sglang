@@ -28,7 +28,6 @@ from sglang.srt.layers.moe.utils import (
 from sglang.srt.utils import (
     get_bool_env_var,
     is_blackwell,
-    is_npu,
     load_json_config,
 )
 

@@ -25,17 +25,13 @@ from transformers import PretrainedConfig
 from sglang.srt.distributed import (
     divide,
     get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_world_size,
-)
+    get_tensor_model_parallel_world_size)
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
     is_cuda,
-    is_npu,
-    is_xpu,
-    set_weight_attrs,
-)
+    set_weight_attrs)
 from sglang.utils import resolve_obj_by_qualname
 
 _is_cuda = is_cuda()
@@ -57,7 +53,7 @@ class SiluAndMul(MultiPlatformOp):
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         d = x.shape[-1] // 2
-        output_shape = x.shape[:-1] + (d,)
+        output_shape = x.shape[:-1] + (d)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
         silu_and_mul(x, out)
         return out
@@ -71,7 +67,7 @@ class SiluAndMul(MultiPlatformOp):
 
     def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
         d = x.shape[-1] // 2
-        output_shape = x.shape[:-1] + (d,)
+        output_shape = x.shape[:-1] + (d)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
         silu_and_mul(x, out)
         return out
@@ -84,7 +80,7 @@ class GeluAndMul(MultiPlatformOp):
 
     def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
         d = x.shape[-1] // 2
-        output_shape = x.shape[:-1] + (d,)
+        output_shape = x.shape[:-1] + (d)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
         if self.approximate == "tanh":
             gelu_tanh_and_mul(x, out)
@@ -112,8 +108,7 @@ class GeluAndMul(MultiPlatformOp):
             x,
             dim=-1,
             approximate=1 if self.approximate == "tanh" else 0,
-            activate_left=True,
-        )
+            activate_left=True)
         return y_npu
 
 
@@ -168,8 +163,7 @@ class XIELU(MultiPlatformOp):
         beta: float = 0.5,
         eps: float = -1e-6,
         dtype: torch.dtype = torch.bfloat16,
-        with_vector_loads: bool = False,
-    ):
+        with_vector_loads: bool = False):
         super().__init__()
         self.alpha_p = nn.Parameter(
             torch.log(torch.exp(torch.tensor(alpha_p_init, dtype=dtype)) - 1).unsqueeze(
@@ -221,8 +215,7 @@ class XIELU(MultiPlatformOp):
         return torch.where(
             x > 0,
             alpha_p * x * x + self.beta * x,
-            (torch.expm1(torch.min(x, self.eps)) - x) * alpha_n + self.beta * x,
-        )
+            (torch.expm1(torch.min(x, self.eps)) - x) * alpha_n + self.beta * x)
 
     def _xielu_cuda(self, x: torch.Tensor) -> torch.Tensor:
         """Firewall function to prevent torch.compile from seeing .item()"""
@@ -240,8 +233,7 @@ class XIELU(MultiPlatformOp):
                 "Note: For SGLang this may be expected if sending"
                 "[B*S,D] instead of [B,S,D].",
                 original_shape,
-                x.shape,
-            )
+                x.shape)
         result = self._xielu_cuda_obj.forward(
             x,
             self.alpha_p,
@@ -249,8 +241,7 @@ class XIELU(MultiPlatformOp):
             # Temporary until xIELU CUDA fully implemented -> self.{beta,eps}.item()
             self._beta_scalar,
             self._eps_scalar,
-            self.with_vector_loads,
-        )
+            self.with_vector_loads)
         return result.view(original_shape)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -275,8 +266,7 @@ class ScaledActivation(nn.Module):
         act_module: nn.Module,
         intermediate_size: int,
         input_is_parallel: bool = True,
-        params_dtype: Optional[torch.dtype] = None,
-    ):
+        params_dtype: Optional[torch.dtype] = None):
         super().__init__()
         self.act = act_module
         self.input_is_parallel = input_is_parallel
@@ -320,8 +310,7 @@ def get_act_fn(
     quant_config: Optional[QuantizationConfig] = None,
     intermediate_size: Optional[int] = None,
     input_is_parallel: bool = True,
-    params_dtype: Optional[torch.dtype] = None,
-) -> nn.Module:
+    params_dtype: Optional[torch.dtype] = None) -> nn.Module:
     """Get an activation function by name."""
     act_fn_name = act_fn_name.lower()
     if act_fn_name not in _ACTIVATION_REGISTRY:

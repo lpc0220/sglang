@@ -12,11 +12,9 @@ from sglang.srt.distributed import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
     get_tp_group,
-    tensor_model_parallel_all_reduce,
-)
+    tensor_model_parallel_all_reduce)
 from sglang.srt.distributed.device_communicators.pynccl_allocator import (
-    use_symmetric_memory,
-)
+    use_symmetric_memory)
 from sglang.srt.layers.amx_utils import PackWeightMethod
 from sglang.srt.layers.communicator import get_attn_tp_context
 from sglang.srt.layers.dp_attention import get_attention_tp_rank, get_attention_tp_size
@@ -24,14 +22,11 @@ from sglang.srt.layers.parameter import BasevLLMParameter
 from sglang.srt.layers.quantization.base_config import (
     QuantizationConfig,
     QuantizeMethodBase,
-    method_has_implemented_embedding,
-)
+    method_has_implemented_embedding)
 from sglang.srt.layers.quantization.unquant import UnquantizedEmbeddingMethod
 from sglang.srt.utils import (
     get_compiler_backend,
-    is_npu,
-    set_weight_attrs,
-)
+    set_weight_attrs)
 
 DEFAULT_VOCAB_PADDING_SIZE = 64
 
@@ -126,8 +121,7 @@ def get_masked_input_and_mask(
     org_vocab_end_index: int,
     num_org_vocab_padding: int,
     added_vocab_start_index: int,
-    added_vocab_end_index: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    added_vocab_end_index: int) -> Tuple[torch.Tensor, torch.Tensor]:
     # torch.compile will fuse all of the pointwise ops below
     # into a single kernel, making it very fast
     org_vocab_mask = (input_ >= org_vocab_start_index) & (input_ < org_vocab_end_index)
@@ -198,8 +192,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         prefix: str = "",
         enable_tp: bool = True,
         use_attn_tp_group: bool = False,
-        use_presharded_weights: bool = False,
-    ):
+        use_presharded_weights: bool = False):
         super().__init__()
         self.quant_config = quant_config
 
@@ -242,8 +235,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             self.num_embeddings,
             self.org_vocab_size,
             tp_rank,
-            self.tp_size,
-        )
+            self.tp_size)
         self.embedding_dim = embedding_dim
 
         quant_method = None
@@ -293,8 +285,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             self.embedding_dim,
             self.num_embeddings_padded,
             params_dtype=params_dtype,
-            weight_loader=self.weight_loader,
-        )
+            weight_loader=self.weight_loader)
 
     @classmethod
     def _get_indices(
@@ -304,8 +295,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         vocab_size: int,
         org_vocab_size: int,
         tp_rank: int,
-        tp_size: int,
-    ) -> VocabParallelEmbeddingShardIndices:
+        tp_size: int) -> VocabParallelEmbeddingShardIndices:
         """Get start and end indices for vocab parallel embedding, following the
         layout outlined in the class docstring, based on the given tp_rank and
         tp_size."""
@@ -331,8 +321,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             org_vocab_start_index,
             org_vocab_end_index,
             added_vocab_start_index,
-            added_vocab_end_index,
-        )
+            added_vocab_end_index)
 
     def get_sharded_to_full_mapping(self) -> Optional[List[int]]:
         """Get a mapping that can be used to reindex the gathered
@@ -358,8 +347,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                 self.num_embeddings,
                 self.org_vocab_size,
                 tp_rank,
-                self.tp_size,
-            )
+                self.tp_size)
             range_start = self.num_embeddings_per_partition * tp_rank
             range_end = self.num_embeddings_per_partition * (tp_rank + 1)
             base_embeddings.extend(
@@ -368,16 +356,14 @@ class VocabParallelEmbedding(torch.nn.Module):
             padding.extend(
                 range(
                     range_start + shard_indices.num_org_elements,
-                    range_start + shard_indices.num_org_elements_padded,
-                )
+                    range_start + shard_indices.num_org_elements_padded)
             )
             added_embeddings.extend(
                 range(
                     range_start + shard_indices.num_org_elements_padded,
                     range_start
                     + shard_indices.num_org_elements_padded
-                    + shard_indices.num_added_elements,
-                )
+                    + shard_indices.num_added_elements)
             )
             padding.extend(
                 range(
@@ -386,8 +372,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                     + shard_indices.num_added_elements,
                     range_start
                     + shard_indices.num_org_elements_padded
-                    + shard_indices.num_added_elements_padded,
-                )
+                    + shard_indices.num_added_elements_padded)
             )
             assert (
                 range_start
@@ -459,8 +444,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                 self.shard_indices.org_vocab_end_index,
                 self.shard_indices.num_org_vocab_padding,
                 self.shard_indices.added_vocab_start_index,
-                self.shard_indices.added_vocab_end_index,
-            )
+                self.shard_indices.added_vocab_end_index)
         else:
             masked_input = input_
 
@@ -514,8 +498,7 @@ class ParallelLMHead(VocabParallelEmbedding):
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
         use_attn_tp_group: bool = False,
-        use_presharded_weights: bool = False,
-    ):
+        use_presharded_weights: bool = False):
         super().__init__(
             num_embeddings,
             embedding_dim,
@@ -525,8 +508,7 @@ class ParallelLMHead(VocabParallelEmbedding):
             quant_config=quant_config,
             prefix=prefix,
             use_attn_tp_group=use_attn_tp_group,
-            use_presharded_weights=use_presharded_weights,
-        )
+            use_presharded_weights=use_presharded_weights)
         self.quant_config = quant_config
 
         if bias:
@@ -538,8 +520,7 @@ class ParallelLMHead(VocabParallelEmbedding):
                 {
                     "output_dim": 0,
                     "weight_loader": self.weight_loader,
-                },
-            )
+                })
         else:
             self.register_parameter("bias", None)
 

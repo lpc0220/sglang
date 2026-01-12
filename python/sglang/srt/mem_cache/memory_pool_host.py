@@ -10,13 +10,11 @@ import torch
 
 from sglang.jit_kernel.hicache import can_use_hicache_jit_kernel
 from sglang.jit_kernel.hicache import (
-    transfer_hicache_all_layer as jit_transfer_hicache_all_layer,
-)
+    transfer_hicache_all_layer as jit_transfer_hicache_all_layer)
 from sglang.jit_kernel.hicache import (
-    transfer_hicache_one_layer as jit_transfer_hicache_one_layer,
-)
+    transfer_hicache_one_layer as jit_transfer_hicache_one_layer)
 from sglang.srt.mem_cache.memory_pool import KVCache, MHATokenToKVPool, MLATokenToKVPool
-from sglang.srt.utils import is_cuda, is_npu, is_xpu
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
     from sgl_kernel.kvcacheio import (
@@ -32,8 +30,7 @@ _is_cuda = is_cuda()
         transfer_kv_per_layer_mla,
         transfer_kv_per_layer_mla_pf_lf,
         transfer_kv_per_layer_pf_lf,
-        transfer_kv_per_layer_ph_lf,
-    )
+        transfer_kv_per_layer_ph_lf)
 def synchronized(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
@@ -61,8 +58,7 @@ def get_allocator_from_storage(allocator_type):
     if allocator_type == "mooncake":
         try:
             from sglang.srt.mem_cache.storage.mooncake_store.mooncake_store import (
-                MooncakeHostTensorAllocator,
-            )
+                MooncakeHostTensorAllocator)
 
             return MooncakeHostTensorAllocator()
         except ImportError:
@@ -81,8 +77,7 @@ def alloc_with_host_register(
     dtype: torch.dtype,
     device: str,
     pin_memory: bool,
-    allocator: HostTensorAllocator,
-) -> torch.Tensor:
+    allocator: HostTensorAllocator) -> torch.Tensor:
     """
     Allocate tensor and register host memory with cudaHostRegister.
     CudaHostRegister only applies when pin_memory=True.
@@ -100,8 +95,7 @@ def alloc_with_pin_memory(
     dtype: torch.dtype,
     device: str,
     pin_memory: bool,
-    allocator: None,
-) -> torch.Tensor:
+    allocator: None) -> torch.Tensor:
     """
     Allocate tensor using PyTorch's built-in pin_memory flag.
     """
@@ -113,8 +107,7 @@ ALLOC_MEMORY_FUNCS = defaultdict(
     lambda: alloc_with_host_register,
     {
         "npu": alloc_with_pin_memory,
-    },
-)
+    })
 
 
 class HostKVCache(abc.ABC):
@@ -128,8 +121,7 @@ class HostKVCache(abc.ABC):
         layout: str,
         pin_memory: bool,
         device: str,
-        allocator_type: str = "default",
-    ):
+        allocator_type: str = "default"):
         self.device_pool = device_pool
         self.page_size = page_size
         self.layout = layout
@@ -229,7 +221,7 @@ class HostKVCache(abc.ABC):
     def clear(self):
         # Initialize memory states and tracking structures.
         self.mem_state = torch.zeros(
-            (self.size,), dtype=torch.uint8, device=self.device
+            (self.size), dtype=torch.uint8, device=self.device
         )
         self.free_slots = torch.arange(self.size, dtype=torch.int64)
 
@@ -267,8 +259,7 @@ class MHATokenToKVPoolHost(HostKVCache):
         layout: str,
         pin_memory: bool = True,
         device: str = "cpu",
-        allocator_type: str = "default",
-    ):
+        allocator_type: str = "default"):
         super().__init__(
             device_pool,
             host_to_device_ratio,
@@ -277,8 +268,7 @@ class MHATokenToKVPoolHost(HostKVCache):
             layout,
             pin_memory,
             device,
-            allocator_type,
-        )
+            allocator_type)
         self.element_dim = self.device_pool.head_num * self.device_pool.head_dim
         self.can_use_jit = _is_cuda and can_use_hicache_jit_kernel(
             element_size=self.element_dim * self.dtype.itemsize
@@ -289,13 +279,11 @@ class MHATokenToKVPoolHost(HostKVCache):
         self.k_data_ptrs = torch.tensor(
             [x.data_ptr() for x in self.k_data_refs],
             dtype=torch.uint64,
-            device=self.device_pool.device,
-        )
+            device=self.device_pool.device)
         self.v_data_ptrs = torch.tensor(
             [x.data_ptr() for x in self.v_data_refs],
             dtype=torch.uint64,
-            device=self.device_pool.device,
-        )
+            device=self.device_pool.device)
 
     def get_size_per_token(self):
         self.head_num = self.device_pool.head_num
@@ -319,8 +307,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                 self.layer_num,
                 self.page_size,
                 self.head_num,
-                self.head_dim,
-            )
+                self.head_dim)
         elif self.layout == "page_head":
             dims = (
                 2,
@@ -328,8 +315,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                 self.head_num,
                 self.page_size,
                 self.layer_num,
-                self.head_dim,
-            )
+                self.head_dim)
         else:
             raise ValueError(f"Unsupported layout: {self.layout}")
         self.token_stride_size = self.head_num * self.head_dim * self.dtype.itemsize
@@ -341,8 +327,7 @@ class MHATokenToKVPoolHost(HostKVCache):
             dtype=self.dtype,
             device=self.device,
             pin_memory=self.pin_memory,
-            allocator=self.allocator,
-        )
+            allocator=self.allocator)
         return buffer
 
     @property
@@ -359,8 +344,7 @@ class MHATokenToKVPoolHost(HostKVCache):
         host_indices,
         device_indices,
         layer_id,
-        io_backend,
-    ):
+        io_backend):
         if io_backend == "kernel":
             if self.layout == "layer_first":
                 if self.can_use_jit:
@@ -371,8 +355,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                         v_cache_src=self.v_buffer[layer_id],
                         indices_dst=device_indices,
                         indices_src=host_indices,
-                        element_dim=self.element_dim,
-                    )
+                        element_dim=self.element_dim)
                 else:
                     transfer_kv_per_layer(
                         src_k=self.k_buffer[layer_id],
@@ -381,8 +364,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                         dst_v=device_pool.v_buffer[layer_id],
                         src_indices=host_indices,
                         dst_indices=device_indices,
-                        item_size=self.token_stride_size,
-                    )
+                        item_size=self.token_stride_size)
             elif self.layout == "page_first":
                 transfer_kv_per_layer_pf_lf(
                     src_k=self.k_buffer,
@@ -393,8 +375,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     dst_indices=device_indices,
                     layer_id=layer_id,
                     item_size=self.token_stride_size,
-                    src_layout_dim=self.layout_dim,
-                )
+                    src_layout_dim=self.layout_dim)
             elif self.layout == "page_head":
                 transfer_kv_per_layer_ph_lf(
                     src_k=self.k_buffer,
@@ -407,8 +388,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     item_size=self.token_stride_size,
                     src_layout_dim=self.layout_dim,
                     page_size=self.page_size,
-                    head_num=self.head_num,
-                )
+                    head_num=self.head_num)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "direct":
@@ -421,8 +401,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     ],
                     src_indices=host_indices,
                     dst_indices=device_indices,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             elif self.layout == "page_first_direct":
                 transfer_kv_per_layer_direct_pf_lf(
                     src_ptrs=[self.k_buffer, self.v_buffer],
@@ -433,8 +412,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     src_indices=host_indices,
                     dst_indices=device_indices,
                     layer_id=layer_id,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "kernel_ascend":
@@ -449,8 +427,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                         device_v=device_pool.v_buffer,
                         host_v=self.v_buffer,
                         page_size=self.page_size,
-                        direction=TransferDirection.H2D,
-                    )
+                        direction=TransferDirection.H2D)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         else:
@@ -471,8 +448,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                         indices_src=device_indices,
                         kv_cache_dst_stride_bytes=self.token_stride_size,
                         kv_cache_src_stride_bytes=self.token_stride_size,
-                        element_size=self.element_dim * self.dtype.itemsize,
-                    )
+                        element_size=self.element_dim * self.dtype.itemsize)
                 else:
                     transfer_kv_all_layer(
                         src_k_layers=device_pool.k_data_ptrs,
@@ -482,8 +458,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                         src_indices=device_indices,
                         dst_indices=host_indices,
                         item_size=self.token_stride_size,
-                        num_layers=self.layer_num,
-                    )
+                        num_layers=self.layer_num)
             elif self.layout == "page_first":
                 transfer_kv_all_layer_lf_pf(
                     src_k_layers=device_pool.k_data_ptrs,
@@ -494,8 +469,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     dst_indices=host_indices,
                     item_size=self.token_stride_size,
                     dst_layout_dim=self.layout_dim,
-                    num_layers=self.layer_num,
-                )
+                    num_layers=self.layer_num)
             elif self.layout == "page_head":
                 transfer_kv_all_layer_lf_ph(
                     src_k_layers=device_pool.k_data_ptrs,
@@ -508,8 +482,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     dst_layout_dim=self.layout_dim,
                     num_layers=self.layer_num,
                     page_size=self.page_size,
-                    head_num=self.head_num,
-                )
+                    head_num=self.head_num)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "direct":
@@ -519,16 +492,14 @@ class MHATokenToKVPoolHost(HostKVCache):
                     dst_layers=self.k_data_refs + self.v_data_refs,
                     src_indices=device_indices,
                     dst_indices=host_indices,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             elif self.layout == "page_first_direct":
                 transfer_kv_all_layer_direct_lf_pf(
                     src_ptrs=device_pool.k_buffer + device_pool.v_buffer,
                     dst_ptrs=[self.k_buffer, self.v_buffer],
                     src_indices=device_indices,
                     dst_indices=host_indices,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "kernel_ascend":
@@ -541,8 +512,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     device_v=device_pool.v_buffer,
                     host_v=self.v_buffer,
                     page_size=self.page_size,
-                    direction=TransferDirection.D2H,
-                )
+                    direction=TransferDirection.D2H)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         else:
@@ -567,8 +537,7 @@ class MHATokenToKVPoolHost(HostKVCache):
             (2, self.layer_num, self.page_size, self.head_num, self.head_dim),
             dtype=self.dtype,
             device=self.device,
-            pin_memory=self.pin_memory,
-        ).flatten()
+            pin_memory=self.pin_memory).flatten()
 
     def set_from_flat_data_page(self, index: int, data_page: torch.Tensor) -> None:
         if self.layout == "layer_first":
@@ -578,8 +547,7 @@ class MHATokenToKVPoolHost(HostKVCache):
                     self.layer_num,
                     self.page_size,
                     self.head_num,
-                    self.head_dim,
-                )
+                    self.head_dim)
             )
         elif self.layout == "page_first":
             self.kv_buffer[:, index : index + self.page_size, :, :, :] = (
@@ -679,8 +647,7 @@ class MLATokenToKVPoolHost(HostKVCache):
         layout: str,
         pin_memory: bool = True,
         device: str = "cpu",
-        allocator_type: str = "default",
-    ):
+        allocator_type: str = "default"):
         super().__init__(
             device_pool,
             host_to_device_ratio,
@@ -689,14 +656,12 @@ class MLATokenToKVPoolHost(HostKVCache):
             layout,
             pin_memory,
             device,
-            allocator_type,
-        )
+            allocator_type)
         self.data_refs = [self.kv_buffer[i] for i in range(self.layer_num)]
         self.data_ptrs = torch.tensor(
             [x.data_ptr() for x in self.data_refs],
             dtype=torch.uint64,
-            device=self.device_pool.device,
-        )
+            device=self.device_pool.device)
 
     def get_size_per_token(self):
         self.kv_lora_rank = self.device_pool.kv_lora_rank
@@ -719,23 +684,20 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.layer_num,
                 self.size,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            )
+                self.kv_lora_rank + self.qk_rope_head_dim)
         elif self.layout == "page_first":
             dims = (
                 self.size,
                 self.layer_num,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            )
+                self.kv_lora_rank + self.qk_rope_head_dim)
         elif self.layout == "page_first_direct":
             dims = (
                 self.page_num,
                 self.layer_num,
                 self.page_size,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            )
+                self.kv_lora_rank + self.qk_rope_head_dim)
         # Ascend-specific: Aligns with NPUMLATokenToKVPool layout
         # Separately allocate k_buffer and v_buffer for easier data transfer.
         elif self.layout == "page_first_kv_split":
@@ -743,23 +705,20 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.page_num,
                 self.layer_num,
                 self.page_size,
-                1,
-            )
+                1)
             alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
             self.k_buffer = alloc_func(
                 (*base_dims, self.kv_lora_rank),
                 dtype=self.dtype,
                 device=self.device,
                 pin_memory=self.pin_memory,
-                allocator=self.allocator,
-            )
+                allocator=self.allocator)
             self.v_buffer = alloc_func(
                 (*base_dims, self.qk_rope_head_dim),
                 dtype=self.dtype,
                 device=self.device,
                 pin_memory=self.pin_memory,
-                allocator=self.allocator,
-            )
+                allocator=self.allocator)
             # Return k_buffer to preserve original kv_buffer and data_refs init logic,
             # though Ascend doesn't use these parameters.
             return self.k_buffer
@@ -776,8 +735,7 @@ class MLATokenToKVPoolHost(HostKVCache):
             dtype=self.dtype,
             device=self.device,
             pin_memory=self.pin_memory,
-            allocator=self.allocator,
-        )
+            allocator=self.allocator)
         return buffer
 
     def load_to_device_per_layer(
@@ -790,8 +748,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     dst=device_pool.kv_buffer[layer_id],
                     src_indices=host_indices,
                     dst_indices=device_indices,
-                    item_size=self.token_stride_size,
-                )
+                    item_size=self.token_stride_size)
             elif self.layout == "page_first":
                 transfer_kv_per_layer_mla_pf_lf(
                     src=self.kv_buffer,
@@ -800,8 +757,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     dst_indices=device_indices,
                     layer_id=layer_id,
                     item_size=self.token_stride_size,
-                    src_layout_dim=self.layout_dim,
-                )
+                    src_layout_dim=self.layout_dim)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "direct":
@@ -811,8 +767,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     dst_layers=[device_pool.kv_buffer[layer_id]],
                     src_indices=host_indices,
                     dst_indices=device_indices,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             elif self.layout == "page_first_direct":
                 transfer_kv_per_layer_direct_pf_lf(
                     src_ptrs=[self.kv_buffer],
@@ -820,8 +775,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     src_indices=host_indices,
                     dst_indices=device_indices,
                     layer_id=layer_id,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "kernel_ascend":
@@ -836,8 +790,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                         device_v=device_pool.v_buffer,
                         host_v=self.v_buffer,
                         page_size=self.page_size,
-                        direction=TransferDirection.H2D,
-                    )
+                        direction=TransferDirection.H2D)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         else:
@@ -854,8 +807,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     src_indices=device_indices,
                     dst_indices=host_indices,
                     item_size=self.token_stride_size,
-                    num_layers=self.layer_num,
-                )
+                    num_layers=self.layer_num)
             elif self.layout == "page_first":
                 transfer_kv_all_layer_mla_lf_pf(
                     src_layers=device_pool.data_ptrs,
@@ -864,8 +816,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     dst_indices=host_indices,
                     item_size=self.token_stride_size,
                     dst_layout_dim=self.layout_dim,
-                    num_layers=self.layer_num,
-                )
+                    num_layers=self.layer_num)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "direct":
@@ -875,16 +826,14 @@ class MLATokenToKVPoolHost(HostKVCache):
                     dst_layers=self.data_refs,
                     src_indices=device_indices,
                     dst_indices=host_indices,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             elif self.layout == "page_first_direct":
                 transfer_kv_all_layer_direct_lf_pf(
                     src_ptrs=device_pool.kv_buffer,
                     dst_ptrs=[self.kv_buffer],
                     src_indices=device_indices,
                     dst_indices=host_indices,
-                    page_size=self.page_size,
-                )
+                    page_size=self.page_size)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         elif io_backend == "kernel_ascend":
@@ -897,8 +846,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                     device_v=device_pool.v_buffer,
                     host_v=self.v_buffer,
                     page_size=self.page_size,
-                    direction=TransferDirection.D2H,
-                )
+                    direction=TransferDirection.D2H)
             else:
                 raise ValueError(f"Unsupported layout: {self.layout}")
         else:
@@ -924,12 +872,10 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.layer_num,
                 self.page_size,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            ),
+                self.kv_lora_rank + self.qk_rope_head_dim),
             dtype=self.dtype,
             device=self.device,
-            pin_memory=self.pin_memory,
-        ).flatten()
+            pin_memory=self.pin_memory).flatten()
 
     def set_from_flat_data_page(self, index: int, data_page: torch.Tensor) -> None:
         if self.layout == "layer_first":
@@ -937,15 +883,13 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.layer_num,
                 self.page_size,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            )
+                self.kv_lora_rank + self.qk_rope_head_dim)
         elif self.layout == "page_first":
             self.kv_buffer[index : index + self.page_size, :, :, :] = data_page.reshape(
                 self.page_size,
                 self.layer_num,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            )
+                self.kv_lora_rank + self.qk_rope_head_dim)
         elif self.layout == "page_first_direct":
             real_index = index // self.page_size
             self.kv_buffer[real_index : real_index + 1, :, :, :, :] = data_page.reshape(
@@ -953,8 +897,7 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.layer_num,
                 self.page_size,
                 1,
-                self.kv_lora_rank + self.qk_rope_head_dim,
-            )
+                self.kv_lora_rank + self.qk_rope_head_dim)
         else:
             raise ValueError(f"Unsupported layout: {self.layout}")
 

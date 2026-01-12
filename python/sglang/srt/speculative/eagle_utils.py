@@ -4,7 +4,7 @@ from typing import List, Optional
 
 import torch
 
-from sglang.srt.utils import is_cuda, is_hip, is_npu
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
 

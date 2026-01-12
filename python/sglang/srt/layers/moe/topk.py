@@ -54,7 +54,6 @@ from sglang.srt.utils import (
     get_bool_env_var,
     get_compiler_backend,
     is_cuda,
-    is_npu,
 )
 from sglang.srt.utils.patch_torch import register_fake_if_exists
 

@@ -25,14 +25,13 @@ from transformers import PretrainedConfig
 from sglang.srt.environ import envs
 from sglang.srt.layers.quantization import QUANTIZATION_METHODS
 from sglang.srt.server_args import ServerArgs
-from sglang.srt.utils import is_hip, retry
+from sglang.srt.utils import retry
 from sglang.srt.utils.hf_transformers_utils import (
     get_config,
     get_context_length,
     get_generation_config,
     get_hf_text_config,
-    get_sparse_attention_config,
-)
+    get_sparse_attention_config)
 from sglang.utils import is_in_ci
 
 logger = logging.getLogger(__name__)
@@ -97,8 +96,7 @@ class ModelConfig:
         quantize_and_serve: bool = False,
         is_multi_layer_eagle: bool = False,
         encoder_only: bool = False,
-        language_only: bool = False,
-    ) -> None:
+        language_only: bool = False) -> None:
         # Parse args
         self.model_path = model_path
         self.revision = revision
@@ -123,15 +121,13 @@ class ModelConfig:
             trust_remote_code=trust_remote_code,
             revision=revision,
             model_override_args=self.model_override_args,
-            **kwargs,
-        )
+            **kwargs)
         self.hf_text_config = get_hf_text_config(self.hf_config)
         self.hf_generation_config = get_generation_config(
             self.model_path,
             trust_remote_code=trust_remote_code,
             revision=revision,
-            **kwargs,
-        )
+            **kwargs)
 
         # Set enable_multimodal
         if enable_multimodal is None:
@@ -229,8 +225,7 @@ class ModelConfig:
         model_path: str = None,
         model_revision: str = None,
         is_draft_model: bool = False,
-        **kwargs,
-    ):
+        **kwargs):
         quantization = (
             server_args.speculative_draft_model_quantization
             if is_draft_model
@@ -254,8 +249,7 @@ class ModelConfig:
             language_only=server_args.language_only,
             encoder_only=server_args.encoder_only,
             is_draft_model=is_draft_model,
-            **kwargs,
-        )
+            **kwargs)
 
     def _config_draft_model(self):
         is_draft_model = self.is_draft_model
@@ -307,8 +301,7 @@ class ModelConfig:
                 get_hybrid_layer_ids(
                     self.hf_config.architectures,
                     self.hf_text_config.num_hidden_layers,
-                    getattr(self.hf_text_config, "hybrid_layer_pattern", None),
-                )
+                    getattr(self.hf_text_config, "hybrid_layer_pattern", None))
             )
 
         self.is_hybrid_swa_compress = self.hf_config.architectures[0] in [
@@ -355,13 +348,11 @@ class ModelConfig:
         self.head_dim = getattr(
             self.hf_text_config,
             "head_dim",
-            self.hf_text_config.hidden_size // self.hf_text_config.num_attention_heads,
-        )
+            self.hf_text_config.hidden_size // self.hf_text_config.num_attention_heads)
         self.v_head_dim = getattr(
             self.hf_text_config,
             "v_head_dim",
-            self.head_dim,
-        )
+            self.head_dim)
 
         # FIXME: temporary special judge for MLA architecture
         if (
@@ -501,8 +492,7 @@ class ModelConfig:
             return getattr(
                 self.hf_config.attn_config,
                 "kv_n_heads",
-                self.hf_config.num_attention_heads,
-            )
+                self.hf_config.num_attention_heads)
         if self.hf_config.model_type in ["nemotron-nas"]:
             nkvh = {
                 self.hf_config.num_attention_heads // block.attention.n_heads_in_group
@@ -587,22 +577,19 @@ class ModelConfig:
                         ),
                         max_retry=2,
                         initial_delay=1.0,
-                        max_delay=5.0,
-                    )
+                        max_delay=5.0)
                     if file_exists:
                         # Download and parse the quantization config for remote models
                         if envs.SGLANG_USE_MODELSCOPE.get():
                             quant_config_file = model_file_download(
                                 model_id=self.model_path,
                                 file_path="hf_quant_config.json",
-                                revision=self.revision,
-                            )
+                                revision=self.revision)
                         else:
                             quant_config_file = hf_hub_download(
                                 repo_id=self.model_path,
                                 filename="hf_quant_config.json",
-                                revision=self.revision,
-                            )
+                                revision=self.revision)
                         with open(quant_config_file) as f:
                             quant_config_dict = json.load(f)
                         quant_cfg = self._parse_modelopt_quant_config(quant_config_dict)
@@ -808,8 +795,7 @@ class ModelConfig:
                     "%s quantization is not fully "
                     "optimized yet. The speed can be slower than "
                     "non-quantized models.",
-                    self.quantization,
-                )
+                    self.quantization)
 
     def _verify_dual_chunk_attention_config(self) -> None:
         if hasattr(self.hf_config, "dual_chunk_attention_config"):
@@ -952,8 +938,7 @@ _STR_DTYPE_TO_TORCH_DTYPE = {
 # adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/config.py
 def _get_and_verify_dtype(
     config: PretrainedConfig,
-    dtype: Union[str, torch.dtype],
-) -> torch.dtype:
+    dtype: Union[str, torch.dtype]) -> torch.dtype:
     # NOTE: getattr(config, "torch_dtype", torch.float32) is not correct
     # because config.torch_dtype can be None.
     config_dtype = getattr(config, "dtype", None)
@@ -1149,8 +1134,7 @@ def is_hybrid_swa_model(model_architectures: List[str]):
 def get_hybrid_layer_ids(
     model_architectures: List[str],
     num_hidden_layers: int,
-    hybrid_layer_pattern: Optional[List[int]] = None,
-):
+    hybrid_layer_pattern: Optional[List[int]] = None):
     if "Llama4ForConditionalGeneration" in model_architectures:
         swa_attention_layer_ids = [
             i for i in range(num_hidden_layers) if (i + 1) % 4 != 0

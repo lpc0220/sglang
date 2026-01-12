@@ -40,8 +40,7 @@ import triton.language as tl
 
 from sglang.srt.distributed.parallel_state import (
     get_moe_expert_parallel_world_size,
-    get_tensor_model_parallel_world_size,
-)
+    get_tensor_model_parallel_world_size)
 from sglang.srt.layers.attention.nsa.utils import NSAContextParallelMetadata
 from sglang.srt.layers.attention.utils import create_flashinfer_kv_indices_triton
 from sglang.srt.layers.dp_attention import (
@@ -50,10 +49,9 @@ from sglang.srt.layers.dp_attention import (
     get_attention_tp_rank,
     get_attention_tp_size,
     set_dp_buffer_len,
-    set_is_extend_in_batch,
-)
+    set_is_extend_in_batch)
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import get_compiler_backend, is_hip, is_npu, support_triton
+from sglang.srt.utils import get_compiler_backend, support_triton
 from sglang.srt.utils.common import ceil_align
 
 if TYPE_CHECKING:
@@ -204,8 +202,7 @@ class CaptureHiddenMode(IntEnum):
 
 def compute_local_num_token_non_padded(
     global_num_token_non_padded: torch.Tensor | int,
-    num_tokens_per_dp: int,
-) -> torch.Tensor:
+    num_tokens_per_dp: int) -> torch.Tensor:
     """Compute local non-padded token count for this attention-TP rank.
 
     Converts a global count (across all TP ranks) to a local count for this rank.
@@ -222,8 +219,7 @@ def compute_local_num_token_non_padded(
     return torch.clamp(
         global_num_token_non_padded - tokens_per_rank * attn_tp_rank,
         0,
-        tokens_per_rank,
-    )
+        tokens_per_rank)
 
 
 @dataclass
@@ -310,9 +306,9 @@ class ForwardBatch:
     prefix_chunk_seq_lens: Optional[torch.Tensor] = None
     # Accumulated lengths of prefix cache for each chunk, (num_prefix_chunks, batch_size + 1)
     prefix_chunk_cu_seq_lens: Optional[torch.Tensor] = None
-    # Max lengths of prefix cache for each chunk, (num_prefix_chunks,)
+    # Max lengths of prefix cache for each chunk, (num_prefix_chunks)
     prefix_chunk_max_seq_lens: Optional[List[int]] = None
-    # Number of tokens in each prefix cache chunk, (num_prefix_chunks,)
+    # Number of tokens in each prefix cache chunk, (num_prefix_chunks)
     prefix_chunk_num_tokens: Optional[List[int]] = None
     # KV Indices for each chunk
     prefix_chunk_kv_indices: Optional[List[torch.Tensor]] = None
@@ -402,8 +398,7 @@ class ForwardBatch:
     def init_new(
         cls,
         batch: ModelWorkerBatch,
-        model_runner: ModelRunner,
-    ):
+        model_runner: ModelRunner):
         ret = cls(
             forward_mode=batch.forward_mode,
             batch_size=len(batch.seq_lens),
@@ -441,8 +436,7 @@ class ForwardBatch:
             token_type_ids=batch.token_type_ids,
             tbo_split_seq_index=batch.tbo_split_seq_index,
             dimensions=batch.dimensions,
-            return_hidden_states_before_norm=batch.return_hidden_states_before_norm,
-        )
+            return_hidden_states_before_norm=batch.return_hidden_states_before_norm)
         device = model_runner.device
 
         if batch.extend_input_logprob_token_ids is not None:
@@ -482,7 +476,7 @@ class ForwardBatch:
             ).to(device, non_blocking=True)
 
         if ret.forward_mode.is_idle():
-            ret.positions = torch.empty((0,), dtype=torch.int64, device=device)
+            ret.positions = torch.empty((0), dtype=torch.int64, device=device)
             return ret
 
         # Override the positions with diffusion LLM or spec_info
@@ -495,8 +489,7 @@ class ForwardBatch:
                     for block_offset in batch.dllm_block_offsets
                     for i in range(block_offset, block_offset + block_size)
                 ],
-                dtype=positions_dtype,
-            ).to(device, non_blocking=True)
+                dtype=positions_dtype).to(device, non_blocking=True)
         elif (
             ret.spec_info is not None
             and getattr(ret.spec_info, "positions", None) is not None
@@ -521,8 +514,7 @@ class ForwardBatch:
                 model_runner.server_args.attention_backend,
                 ret.extend_prefix_lens,
                 ret.extend_seq_lens,
-                ret.extend_num_tokens,
-            )
+                ret.extend_num_tokens)
             if ret.positions is None:
                 ret.positions = positions
             ret.extend_prefix_lens_cpu = batch.extend_prefix_lens
@@ -558,8 +550,7 @@ class ForwardBatch:
 
         self.num_token_non_padded = compute_local_num_token_non_padded(
             global_num_token_non_padded=self.num_token_non_padded_cpu,
-            num_tokens_per_dp=num_tokens_per_dp,
-        )
+            num_tokens_per_dp=num_tokens_per_dp)
 
     def merge_mm_inputs(self) -> Optional[MultimodalInputs]:
         """
@@ -664,8 +655,7 @@ class ForwardBatch:
     def _expand_mrope_from_input(
         self,
         mm_input: MultimodalInputs,
-        seq_len: int,
-    ) -> torch.Tensor:
+        seq_len: int) -> torch.Tensor:
         # doing below compute on cpu to avoid frequent small kernels
         mrope_position_deltas = mm_input.mrope_position_delta.flatten()
         mrope_positions = (
@@ -690,8 +680,7 @@ class ForwardBatch:
                     mrope_positions_list[batch_idx] = torch.full(
                         (3, 1),
                         self.seq_lens_cpu[batch_idx] - 1,
-                        dtype=torch.int64,
-                    )
+                        dtype=torch.int64)
                 else:
                     mrope_positions = self._expand_mrope_from_input(
                         mm_input, self.seq_lens_cpu[batch_idx]
@@ -700,8 +689,7 @@ class ForwardBatch:
             elif self.forward_mode.is_extend():
                 extend_seq_len, extend_prefix_len = (
                     batch.extend_seq_lens[batch_idx],
-                    batch.extend_prefix_lens[batch_idx],
-                )
+                    batch.extend_prefix_lens[batch_idx])
                 if (
                     mm_input is None
                     or get_global_server_args().rl_on_policy_target is not None
@@ -713,8 +701,7 @@ class ForwardBatch:
                                 pos
                                 for pos in range(
                                     extend_prefix_len,
-                                    extend_prefix_len + extend_seq_len,
-                                )
+                                    extend_prefix_len + extend_seq_len)
                             ]
                         ]
                         * 3
@@ -732,8 +719,7 @@ class ForwardBatch:
 
         self.mrope_positions = torch.cat(
             [pos for pos in mrope_positions_list],
-            dim=1,
-        ).to(dtype=torch.int64, device=model_runner.device, non_blocking=True)
+            dim=1).to(dtype=torch.int64, device=model_runner.device, non_blocking=True)
 
     def get_max_chunk_capacity(self):
         # Maximum number of tokens in each chunk
@@ -758,31 +744,28 @@ class ForwardBatch:
                 num_chunk_tokens, dtype=torch.int32, device=device
             )
 
-            create_chunked_prefix_cache_kv_indices[(self.batch_size,)](
+            create_chunked_prefix_cache_kv_indices[(self.batch_size)](
                 self.req_to_token_pool.req_to_token,
                 self.req_pool_indices,
                 chunk_starts,
                 chunk_seq_lens,
                 chunk_cu_seq_lens,
                 chunk_kv_indices,
-                self.req_to_token_pool.req_to_token.shape[1],
-            )
+                self.req_to_token_pool.req_to_token.shape[1])
             self.prefix_chunk_kv_indices.append(chunk_kv_indices)
 
     def _pad_tensor_to_size(self, tensor: torch.Tensor, size: int, *, value: int = 0):
         if value == 0:
             return torch.cat(
                 [tensor, tensor.new_zeros(size - tensor.shape[0], *tensor.shape[1:])],
-                dim=0,
-            )
+                dim=0)
         else:
             return torch.cat(
                 [
                     tensor,
                     tensor.new_full((size - tensor.shape[0], *tensor.shape[1:]), value),
                 ],
-                dim=0,
-            )
+                dim=0)
 
     def prepare_mlp_sync_batch(self, model_runner: ModelRunner):
         from sglang.srt.batch_overlap.two_batch_overlap import TboForwardBatchPreparer
@@ -1021,8 +1004,7 @@ class ForwardBatch:
         )
         prefix_chunk_ends = torch.min(
             prefix_lens.unsqueeze(0),
-            prefix_chunk_starts + prefix_chunk_len,
-        ).to(torch.int32)
+            prefix_chunk_starts + prefix_chunk_len).to(torch.int32)
 
         prefix_chunk_seq_lens = (
             (prefix_chunk_ends - prefix_chunk_starts).clamp(min=0).to(torch.int32)
@@ -1063,14 +1045,12 @@ class ForwardBatch:
             self.get_prefix_chunk_seq_lens(
                 self.extend_prefix_lens,
                 self.num_prefix_chunks,
-                self.prefix_chunk_len,
-            )
+                self.prefix_chunk_len)
         )
         _, prefix_chunk_seq_lens_cpu = self.get_prefix_chunk_seq_lens(
             torch.tensor(self.extend_prefix_lens_cpu),
             self.num_prefix_chunks,
-            self.prefix_chunk_len,
-        )
+            self.prefix_chunk_len)
         self.prefix_chunk_starts = prefix_chunk_starts_cuda
         self.prefix_chunk_seq_lens = prefix_chunk_seq_lens_cuda
 
@@ -1079,8 +1059,7 @@ class ForwardBatch:
             self.num_prefix_chunks,
             self.batch_size + 1,
             device=device,
-            dtype=torch.int32,
-        )
+            dtype=torch.int32)
         self.prefix_chunk_cu_seq_lens[:, 1:] = prefix_chunk_seq_lens_cuda.cumsum(
             dim=1
         ).to(torch.int32)
@@ -1106,23 +1085,20 @@ class ForwardBatch:
         kv_indices = torch.empty(
             paged_kernel_lens_sum,
             dtype=torch.int32,
-            device=self.req_pool_indices.device,
-        )
+            device=self.req_pool_indices.device)
         kv_indptr = torch.zeros(
             batch_size + 1,
             dtype=torch.int32,
-            device=self.req_pool_indices.device,
-        )
+            device=self.req_pool_indices.device)
         kv_indptr[1:] = torch.cumsum(self.seq_lens, dim=0)
-        create_flashinfer_kv_indices_triton[(self.batch_size,)](
+        create_flashinfer_kv_indices_triton[(self.batch_size)](
             self.req_to_token_pool.req_to_token,
             self.req_pool_indices,
             self.seq_lens,
             kv_indptr,
             None,
             kv_indices,
-            self.req_to_token_pool.req_to_token.shape[1],
-        )
+            self.req_to_token_pool.req_to_token.shape[1])
         self.mha_one_shot_kv_indices = kv_indices
         return kv_indices
 
@@ -1165,14 +1141,12 @@ def compute_position(
     attn_backend: str,
     extend_prefix_lens: torch.Tensor,
     extend_seq_lens: torch.Tensor,
-    extend_seq_lens_sum: int,
-):
+    extend_seq_lens_sum: int):
     if support_triton(attn_backend):
         positions, extend_start_loc = compute_position_triton(
             extend_prefix_lens,
             extend_seq_lens,
-            extend_seq_lens_sum,
-        )
+            extend_seq_lens_sum)
     else:
         positions, extend_start_loc = compute_position_torch(
             extend_prefix_lens, extend_seq_lens
@@ -1195,13 +1169,12 @@ def compute_position_triton(
     )
 
     # Launch kernel
-    compute_position_kernel[(batch_size,)](
+    compute_position_kernel[(batch_size)](
         positions,
         extend_start_loc,
         extend_prefix_lens,
         extend_seq_lens,
-        has_prefix,
-    )
+        has_prefix)
 
     return positions, extend_start_loc
 
@@ -1212,8 +1185,7 @@ def compute_position_kernel(
     extend_start_loc,
     extend_prefix_lens,
     extend_seq_lens,
-    has_prefix: tl.constexpr,
-):
+    has_prefix: tl.constexpr):
     BLOCK_SIZE: tl.constexpr = 512
     pid = tl.program_id(0).to(tl.int64)
 
@@ -1231,8 +1203,7 @@ def compute_position_kernel(
         tl.store(
             positions + cumsum_start + offset,
             prefix_len + offset,
-            mask=offset < seq_len,
-        )
+            mask=offset < seq_len)
     tl.store(extend_start_loc + pid, cumsum_start)
 
 
@@ -1246,8 +1217,7 @@ def compute_position_torch(
             )
             for prefix_len, extend_len in zip(extend_prefix_lens, extend_seq_lens)
         ],
-        axis=0,
-    )
+        axis=0)
     extend_start_loc = torch.zeros_like(extend_seq_lens)
     extend_start_loc[1:] = torch.cumsum(extend_seq_lens[:-1], dim=0)
     return positions.to(torch.int64), extend_start_loc
@@ -1260,14 +1230,13 @@ def clamp_position(seq_lens):
 
 @triton.jit
 def create_chunked_prefix_cache_kv_indices(
-    req_to_token_ptr,  # (max_batch, max_context_len,)
-    req_pool_indices_ptr,  # (batch_size,)
-    chunk_start_idx_ptr,  # (batch_size,)
-    chunk_seq_lens_ptr,  # (batch_size,)
-    chunk_cu_seq_lens_ptr,  # (batch_size + 1,)
-    chunk_kv_indices_ptr,  # (num_chunk_tokens,)
-    req_to_token_ptr_stride: tl.constexpr,
-):
+    req_to_token_ptr,  # (max_batch, max_context_len)
+    req_pool_indices_ptr,  # (batch_size)
+    chunk_start_idx_ptr,  # (batch_size)
+    chunk_seq_lens_ptr,  # (batch_size)
+    chunk_cu_seq_lens_ptr,  # (batch_size + 1)
+    chunk_kv_indices_ptr,  # (num_chunk_tokens)
+    req_to_token_ptr_stride: tl.constexpr):
     BLOCK_SIZE: tl.constexpr = 512
     pid = tl.program_id(axis=0)
 
@@ -1288,8 +1257,7 @@ def create_chunked_prefix_cache_kv_indices(
             + req_pool_index * req_to_token_ptr_stride
             + chunk_start_pos
             + offset,
-            mask=mask,
-        )
+            mask=mask)
         tl.store(
             chunk_kv_indices_ptr + chunk_kv_indices_offset + offset, data, mask=mask
         )

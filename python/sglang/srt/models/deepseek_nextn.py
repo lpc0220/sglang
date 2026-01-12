@@ -30,29 +30,25 @@ from sglang.srt.layers.attention.nsa.utils import (
     cp_split_and_rebuild_data,
     is_nsa_enable_prefill_cp,
     nsa_use_prefill_cp,
-    prepare_input_dp_with_cp_dsa,
-)
+    prepare_input_dp_with_cp_dsa)
 from sglang.srt.layers.dp_attention import (
     get_attention_tp_rank,
     get_attention_tp_size,
-    is_dp_attention_enabled,
-)
+    is_dp_attention_enabled)
 from sglang.srt.layers.layernorm import RMSNorm
 from sglang.srt.layers.logits_processor import LogitsProcessor
 from sglang.srt.layers.quantization import Fp8Config
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.vocab_parallel_embedding import (
     ParallelLMHead,
-    VocabParallelEmbedding,
-)
+    VocabParallelEmbedding)
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.models.deepseek_v2 import (
     DeepseekV2DecoderLayer,
     DeepseekV3ForCausalLM,
-    enable_nextn_moe_bf16_cast_to_fp8,
-)
+    enable_nextn_moe_bf16_cast_to_fp8)
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import BumpAllocator, add_prefix, is_cuda, is_npu
+from sglang.srt.utils import BumpAllocator, add_prefix, is_cuda
 
 logger = logging.getLogger(__name__)
 
@@ -65,15 +61,13 @@ class DeepseekModelNextN(nn.Module):
         self,
         config: PretrainedConfig,
         quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-    ) -> None:
+        prefix: str = "") -> None:
         super().__init__()
         if enable_nextn_moe_bf16_cast_to_fp8(quant_config):
             # refer to real DeepSeek V3 quant config
             moe_quant_config_override = Fp8Config(
                 is_checkpoint_fp8_serialized=True,
-                weight_block_size=[128, 128],
-            )
+                weight_block_size=[128, 128])
         else:
             moe_quant_config_override = None
 
@@ -89,8 +83,7 @@ class DeepseekModelNextN(nn.Module):
             config.vocab_size,
             config.hidden_size,
             enable_tp=not is_dp_attention_enabled(),
-            prefix=add_prefix("embed_tokens", prefix),
-        )
+            prefix=add_prefix("embed_tokens", prefix))
 
         self.enorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.hnorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -112,8 +105,7 @@ class DeepseekModelNextN(nn.Module):
             moe_quant_config_override=moe_quant_config_override,
             is_nextn=True,
             prefix=add_prefix(layer_name, prefix),
-            alt_stream=self.alt_stream,
-        )
+            alt_stream=self.alt_stream)
 
         self.shared_head = nn.Module()
         self.shared_head.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -128,15 +120,13 @@ class DeepseekModelNextN(nn.Module):
         input_ids: torch.Tensor,
         positions: torch.Tensor,
         forward_batch: ForwardBatch,
-        input_embeds: torch.Tensor = None,
-    ) -> torch.Tensor:
+        input_embeds: torch.Tensor = None) -> torch.Tensor:
         zero_allocator = BumpAllocator(
             buffer_size=2,
             dtype=torch.float32,
             device=(
                 input_embeds.device if input_embeds is not None else input_ids.device
-            ),
-        )
+            ))
 
         if input_embeds is None:
             hidden_states = self.embed_tokens(input_ids)
@@ -148,10 +138,8 @@ class DeepseekModelNextN(nn.Module):
                 torch.cat(
                     (
                         self.enorm(hidden_states),
-                        self.hnorm(forward_batch.spec_info.hidden_states),
-                    ),
-                    dim=-1,
-                )
+                        self.hnorm(forward_batch.spec_info.hidden_states)),
+                    dim=-1)
             )
 
         if nsa_use_prefill_cp(forward_batch, self.nsa_enable_prefill_cp):
@@ -163,8 +151,7 @@ class DeepseekModelNextN(nn.Module):
                 hidden_states,
                 forward_batch,
                 residual,
-                zero_allocator,
-            )
+                zero_allocator)
 
         if not forward_batch.forward_mode.is_idle():
             if residual is not None:
@@ -178,8 +165,7 @@ class DeepseekModelNextN(nn.Module):
                     hidden_states,
                     self.cp_size,
                     forward_batch,
-                    torch.cuda.current_stream(),
-                )
+                    torch.cuda.current_stream())
 
         return hidden_states
 
@@ -190,8 +176,7 @@ class DeepseekV3ForCausalLMNextN(DeepseekV3ForCausalLM):
         self,
         config: PretrainedConfig,
         quant_config: Optional[QuantizationConfig] = None,
-        prefix: str = "",
-    ) -> None:
+        prefix: str = "") -> None:
         nn.Module.__init__(self)
         self.config = config
         self.tp_size = get_tensor_model_parallel_world_size()
@@ -216,8 +201,7 @@ class DeepseekV3ForCausalLMNextN(DeepseekV3ForCausalLM):
             config.hidden_size,
             quant_config=quant_config,
             prefix=add_prefix("model.shared_head.head", prefix),
-            use_attn_tp_group=get_global_server_args().enable_dp_lm_head,
-        )
+            use_attn_tp_group=get_global_server_args().enable_dp_lm_head)
         self.logits_processor = LogitsProcessor(config)
 
     @torch.no_grad()
@@ -225,8 +209,7 @@ class DeepseekV3ForCausalLMNextN(DeepseekV3ForCausalLM):
         self,
         input_ids: torch.Tensor,
         positions: torch.Tensor,
-        forward_batch: ForwardBatch,
-    ) -> torch.Tensor:
+        forward_batch: ForwardBatch) -> torch.Tensor:
         # TODO current just support prefill batch=1 and len(input_ids) > self.cp_size * 2
         if self.nsa_enable_prefill_cp:
             if can_cp_split(len(input_ids), self.cp_size, self.use_nsa, forward_batch):
@@ -234,8 +217,7 @@ class DeepseekV3ForCausalLMNextN(DeepseekV3ForCausalLM):
                     len(input_ids),
                     self.cp_rank,
                     self.cp_size,
-                    forward_batch.seq_lens_cpu.tolist(),
-                )
+                    forward_batch.seq_lens_cpu.tolist())
         hidden_states = self.model(input_ids, positions, forward_batch)
         return self.logits_processor(
             input_ids, hidden_states, self.lm_head, forward_batch

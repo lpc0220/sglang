@@ -18,7 +18,7 @@ from sglang.srt.managers.schedule_batch import (
     MultimodalInputFormat,
 )
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import envs, is_npu, load_audio, load_image, load_video, logger
+from sglang.srt.utils import envs, load_audio, load_image, load_video, logger
 from sglang.srt.utils.cuda_ipc_transport_utils import (
     MM_FEATURE_CACHE_SIZE,
     MM_ITEM_MEMORY_POOL_RECYCLE_INTERVAL,

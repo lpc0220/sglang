@@ -54,7 +54,7 @@ from sglang.srt.speculative.spec_utils import (
     load_token_map,
     select_top_k_tokens,
 )
-from sglang.srt.utils import empty_context, get_available_gpu_memory, is_cuda, is_npu
+from sglang.srt.utils import empty_context, get_available_gpu_memory, is_cuda
 
 if is_cuda():
     from sgl_kernel import segment_packbits  # noqa: F401

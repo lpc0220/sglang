@@ -12,7 +12,6 @@ from sglang.srt.environ import envs
 from sglang.srt.managers.io_struct import ProfileReq, ProfileReqOutput, ProfileReqType
 from sglang.srt.model_executor.forward_batch_info import ForwardMode
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import is_npu
 from sglang.srt.utils.profile_merger import ProfileMerger
 from sglang.srt.utils.profile_utils import ProfileManager
 
@@ -25,8 +24,7 @@ class SchedulerProfilerMixin:
             self._profile_manager = ProfileManager(
                 tp_rank=self.tp_rank,
                 cpu_group=self.dp_tp_cpu_group,
-                gpu_id=self.gpu_id,
-            )
+                gpu_id=self.gpu_id)
             return
 
         self.torch_profiler = None
@@ -61,8 +59,7 @@ class SchedulerProfilerMixin:
         profile_id: str,
         merge_profiles: bool = False,
         profile_prefix: str = "",
-        profile_stages: Optional[List[str]] = None,
-    ) -> ProfileReqOutput:
+        profile_stages: Optional[List[str]] = None) -> ProfileReqOutput:
         if envs.SGLANG_PROFILE_V2.get():
             return self._profile_manager.configure(
                 output_dir=output_dir,
@@ -75,14 +72,12 @@ class SchedulerProfilerMixin:
                 profile_id=profile_id,
                 merge_profiles=merge_profiles,
                 profile_prefix=profile_prefix,
-                profile_stages=profile_stages,
-            )
+                profile_stages=profile_stages)
 
         if self.profile_in_progress:
             return ProfileReqOutput(
                 success=False,
-                message="Profiling is already in progress. Call /stop_profile first.",
-            )
+                message="Profiling is already in progress. Call /stop_profile first.")
 
         self.profile_by_stage = profile_by_stage
         self.merge_profiles = merge_profiles
@@ -128,8 +123,7 @@ class SchedulerProfilerMixin:
 
         stage_str = f" for {stage.name}" if stage else ""
         logger.info(
-            f"Profiling starts{stage_str}. Traces will be saved to: {self.torch_profiler_output_dir} (with profile id: {self.profile_id})",
-        )
+            f"Profiling starts{stage_str}. Traces will be saved to: {self.torch_profiler_output_dir} (with profile id: {self.profile_id})")
 
         activities = self.profiler_activities
         with_stack = self.torch_profiler_with_stack
@@ -150,8 +144,7 @@ class SchedulerProfilerMixin:
 
             self.rpd_profile_path = os.path.join(
                 self.torch_profiler_output_dir,
-                "rpd-" + str(time.time()) + f"-TP-{self.tp_rank}" + ".trace.json.gz",
-            )
+                "rpd-" + str(time.time()) + f"-TP-{self.tp_rank}" + ".trace.json.gz")
 
             if self.tp_rank == 0:
                 import sqlite3
@@ -234,8 +227,7 @@ class SchedulerProfilerMixin:
         if not self.profile_in_progress:
             return ProfileReqOutput(
                 success=False,
-                message="Profiling is not in progress. Call /start_profile first.",
-            )
+                message="Profiling is not in progress. Call /start_profile first.")
 
         self.torch_profiler_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -290,8 +282,7 @@ class SchedulerProfilerMixin:
                 str(time.time())
                 + f"-TP-{self.tp_rank}-memory"
                 + stage_suffix
-                + ".pickle",
-            )
+                + ".pickle")
             torch.cuda.memory._dump_snapshot(memory_profile_path)
             torch.cuda.memory._record_memory_history(enabled=None)
 
@@ -304,8 +295,7 @@ class SchedulerProfilerMixin:
         logger.info(
             "Profiling done. Traces are saved to: %s%s",
             self.torch_profiler_output_dir,
-            merge_message,
-        )
+            merge_message)
         self.torch_profiler = None
         self.profile_in_progress = False
         self.profiler_start_forward_ct = None
@@ -366,8 +356,7 @@ class SchedulerProfilerMixin:
                     recv_req.profile_id,
                     recv_req.merge_profiles,
                     recv_req.profile_prefix,
-                    recv_req.profile_stages,
-                )
+                    recv_req.profile_stages)
             else:
                 self.init_profile(
                     recv_req.output_dir,
@@ -379,8 +368,7 @@ class SchedulerProfilerMixin:
                     recv_req.profile_by_stage,
                     recv_req.profile_id,
                     recv_req.merge_profiles,
-                    recv_req.profile_prefix,
-                )
+                    recv_req.profile_prefix)
                 return self.start_profile()
         else:
             return self.stop_profile()

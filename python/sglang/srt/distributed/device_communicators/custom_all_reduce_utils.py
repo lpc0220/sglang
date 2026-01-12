@@ -18,7 +18,7 @@ import torch.multiprocessing as mp
 from typing_extensions import ParamSpec
 
 from sglang.srt.distributed.device_communicators.cuda_wrapper import CudaRTLibrary
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 logger = logging.getLogger(__name__)
 

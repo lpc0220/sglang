@@ -5,8 +5,6 @@ from torch import nn
 from sglang.srt.utils import (
     cpu_has_amx_support,
     is_cuda,
-    is_npu,
-    is_xpu,
 )
 
 _is_cuda = is_cuda()

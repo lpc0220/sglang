@@ -47,11 +47,7 @@ from sglang.srt.utils import (
     get_int_env_var,
     get_local_ip_auto,
     is_cuda_alike,
-    is_hip,
-    is_npu,
-    is_shm_available,
-    is_xpu,
-)
+    is_shm_available)
 from sglang.srt.utils.custom_op import register_custom_op
 TensorMetadata = namedtuple("TensorMetadata", ["device", "dtype", "size"])
 
@@ -218,8 +214,7 @@ class GroupCoordinator:
         use_message_queue_broadcaster: bool = False,
         group_name: Optional[str] = None,
         pynccl_use_current_stream: bool = False,
-        gloo_timeout: timedelta = timedelta(seconds=120 * 60),
-    ):
+        gloo_timeout: timedelta = timedelta(seconds=120 * 60)):
         # Set group info
         group_name = group_name or "anonymous"
         self.unique_name = _get_unique_name(group_name)

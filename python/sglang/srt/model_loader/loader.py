@@ -27,8 +27,7 @@ from typing import (
     Optional,
     Tuple,
     Union,
-    cast,
-)
+    cast)
 
 import huggingface_hub
 import numpy as np
@@ -37,8 +36,7 @@ import torch
 from sglang.srt.model_loader.remote_instance_weight_loader_utils import (
     RemoteInstanceWeightLoaderBackend,
     get_remote_instance_transfer_engine_info_per_rank,
-    register_memory_region,
-)
+    register_memory_region)
 from sglang.srt.server_args import get_global_server_args
 
 # Try to import accelerate (optional dependency)
@@ -62,24 +60,20 @@ from sglang.srt.configs.load_config import LoadConfig, LoadFormat
 from sglang.srt.connector import (
     ConnectorType,
     create_remote_connector,
-    get_connector_type,
-)
+    get_connector_type)
 from sglang.srt.connector.utils import parse_model_name
 from sglang.srt.distributed import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
-    model_parallel_is_initialized,
-)
+    model_parallel_is_initialized)
 from sglang.srt.layers.modelopt_utils import QUANT_CFG_CHOICES
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.model_loader.remote_instance_weight_loader_utils import (
-    trigger_transferring_weights_request,
-)
+    trigger_transferring_weights_request)
 from sglang.srt.model_loader.utils import (
     get_model_architecture,
     post_load_weights,
-    set_default_torch_dtype,
-)
+    set_default_torch_dtype)
 
 # Constants for memory management
 DEFAULT_GPU_MEMORY_FRACTION_FOR_CALIBRATION = (
@@ -101,16 +95,13 @@ from sglang.srt.model_loader.weight_utils import (
     np_cache_weights_iterator,
     pt_weights_iterator,
     safetensors_weights_iterator,
-    set_runai_streamer_env,
-)
+    set_runai_streamer_env)
 from sglang.srt.utils import (
     get_bool_env_var,
-    get_device_capability,
-    is_npu,
+    get_device_capability, 
     is_pin_memory_available,
     rank0_log,
-    set_weight_attrs,
-)
+    set_weight_attrs)
 
 if TYPE_CHECKING:
     from sglang.srt.configs.device_config import DeviceConfig
@@ -139,8 +130,7 @@ def device_loading_context(module: torch.nn.Module, target_device: torch.device)
             original_infos[name] = dict(
                 device=p.device,
                 original_data=original_data,
-                device_data=device_data,
-            )
+                device_data=device_data)
             p.data = device_data
         # Parameters already on target device are not touched
 
@@ -173,8 +163,7 @@ def device_loading_context(module: torch.nn.Module, target_device: torch.device)
                         dtype=p.data.dtype,
                         layout=p.data.layout,
                         device="cpu",
-                        pin_memory=pin_memory,
-                    )
+                        pin_memory=pin_memory)
                     cpu_data.copy_(p.data)
                     p.data = cpu_data
                 else:
@@ -189,8 +178,7 @@ def _get_quantization_config(
     model_config: ModelConfig,
     load_config: LoadConfig,
     packed_modules_mapping: Dict[str, List[str]],
-    remap_prefix: Dict[str, str] | None = None,
-) -> Optional[QuantizationConfig]:
+    remap_prefix: Dict[str, str] | None = None) -> Optional[QuantizationConfig]:
     """Get the quantization config."""
     if model_config.quantization is not None:
         quant_config = get_quant_config(
@@ -224,8 +212,7 @@ def _get_quantization_config(
 
 def _initialize_model(
     model_config: ModelConfig,
-    load_config: LoadConfig,
-) -> nn.Module:
+    load_config: LoadConfig) -> nn.Module:
     """Initialize a model with the given configurations."""
     model_class, _ = get_model_architecture(model_config)
     packed_modules_mapping = getattr(model_class, "packed_modules_mapping", {})
@@ -243,8 +230,7 @@ def _initialize_model(
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
         """Load a model with the given configurations."""
         raise NotImplementedError
 
@@ -277,8 +263,7 @@ class DefaultModelLoader(BaseModelLoader):
                 model_config.model_path,
                 model_config.revision,
                 prefix="",
-                fall_back_to_pt=getattr(model, "fall_back_to_pt_during_load", True),
-            )
+                fall_back_to_pt=getattr(model, "fall_back_to_pt_during_load", True))
 
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
@@ -312,8 +297,7 @@ class DefaultModelLoader(BaseModelLoader):
                     cache_dir=self.load_config.download_dir,
                     local_files_only=huggingface_hub.constants.HF_HUB_OFFLINE,
                     revision=revision,
-                    ignore_file_pattern=self.load_config.ignore_patterns,
-                )
+                    ignore_file_pattern=self.load_config.ignore_patterns)
             else:
                 model_path = model
             return model_path
@@ -367,8 +351,7 @@ class DefaultModelLoader(BaseModelLoader):
                 self.load_config.download_dir,
                 allow_patterns,
                 revision,
-                ignore_patterns=self.load_config.ignore_patterns,
-            )
+                ignore_patterns=self.load_config.ignore_patterns)
         else:
             hf_folder = model_name_or_path
 
@@ -398,8 +381,7 @@ class DefaultModelLoader(BaseModelLoader):
                     model_name_or_path,
                     index_file,
                     self.load_config.download_dir,
-                    revision,
-                )
+                    revision)
             hf_weights_files = filter_duplicate_safetensors_files(
                 hf_weights_files, hf_folder, index_file
             )
@@ -428,8 +410,7 @@ class DefaultModelLoader(BaseModelLoader):
                 source.model_or_path,
                 self.load_config.download_dir,
                 hf_folder,
-                hf_weights_files,
-            )
+                hf_weights_files)
         elif use_safetensors:
             weight_loader_disable_mmap = (
                 get_global_server_args().weight_loader_disable_mmap
@@ -437,16 +418,14 @@ class DefaultModelLoader(BaseModelLoader):
 
             if self.load_config.load_format == LoadFormat.FASTSAFETENSORS:
                 weights_iterator = fastsafetensors_weights_iterator(
-                    hf_weights_files,
-                )
+                    hf_weights_files)
             elif extra_config.get("enable_multithread_load"):
                 weights_iterator = multi_thread_safetensors_weights_iterator(
                     hf_weights_files,
                     max_workers=extra_config.get(
                         "num_threads", self.DEFAULT_NUM_THREADS
                     ),
-                    disable_mmap=weight_loader_disable_mmap,
-                )
+                    disable_mmap=weight_loader_disable_mmap)
             else:
                 weights_iterator = safetensors_weights_iterator(
                     hf_weights_files, disable_mmap=weight_loader_disable_mmap
@@ -458,8 +437,7 @@ class DefaultModelLoader(BaseModelLoader):
                     hf_weights_files,
                     max_workers=extra_config.get(
                         "num_threads", self.DEFAULT_NUM_THREADS
-                    ),
-                )
+                    ))
             else:
                 weights_iterator = pt_weights_iterator(hf_weights_files)
 
@@ -486,8 +464,7 @@ class DefaultModelLoader(BaseModelLoader):
     def _get_all_weights(
         self,
         model_config: ModelConfig,
-        model: nn.Module,
-    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        model: nn.Module) -> Generator[Tuple[str, torch.Tensor], None, None]:
 
         primary_weights = DefaultModelLoader.Source.init_new(model_config, model)
         yield from self._get_weights_iterator(primary_weights)
@@ -548,8 +525,7 @@ class DefaultModelLoader(BaseModelLoader):
             model_config.model_path,
             device_map=device_map,
             **model_kwargs,
-            trust_remote_code=True,
-        )
+            trust_remote_code=True)
         # Handle both legacy modelopt_quant and unified quantization flags
         if hasattr(model_config, "modelopt_quant") and model_config.modelopt_quant:
             # Legacy approach
@@ -574,8 +550,7 @@ class DefaultModelLoader(BaseModelLoader):
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
 
         if hasattr(model_config, "modelopt_quant") and model_config.modelopt_quant:
             # Load base model using shared method
@@ -589,8 +564,7 @@ class DefaultModelLoader(BaseModelLoader):
             with target_device:
                 model = _initialize_model(
                     model_config,
-                    self.load_config,
-                )
+                    self.load_config)
 
             self.load_weights_and_postprocess(
                 model, self._get_all_weights(model_config, model), target_device
@@ -715,8 +689,7 @@ class DefaultModelLoader(BaseModelLoader):
             shard_index = 0
             for shard_name, (
                 weight_name,
-                index,
-            ) in model.bitsandbytes_stacked_params_mapping.items():
+                index) in model.bitsandbytes_stacked_params_mapping.items():
                 if (
                     model_type in ["qwen2_vl", "qwen2_5_vl"]
                     and "visual" in quant_param_name
@@ -778,14 +751,12 @@ class DefaultModelLoader(BaseModelLoader):
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
                 model = _initialize_model(
                     model_config,
-                    self.load_config,
-                )
+                    self.load_config)
 
                 self._load_weights(model_config, model)
 
@@ -870,8 +841,7 @@ class GGUFModelLoader(BaseModelLoader):
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
 
         local_model_path = self._prepare_weights(model_config.model_path)
         gguf_weights_map = self._get_gguf_weights_map(model_config)
@@ -916,8 +886,7 @@ class RemoteInstanceModelLoader(BaseModelLoader):
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
         logger.info("Loading weights from remote instance ...")
         load_config = self.load_config
 
@@ -971,8 +940,7 @@ class RemoteInstanceModelLoader(BaseModelLoader):
                 model,
                 load_config.remote_instance_weight_loader_transfer_engine,
                 f"http://{load_config.remote_instance_weight_loader_seed_instance_ip}:{load_config.remote_instance_weight_loader_seed_instance_service_port}",
-                load_config.tp_rank,
-            )
+                load_config.tp_rank)
             if not success:
                 raise RuntimeError(
                     "Failed to load weights from remote instance via transfer engine."
@@ -991,8 +959,7 @@ class RemoteInstanceModelLoader(BaseModelLoader):
         client.build_group(
             gpu_id=device_config.gpu_id,
             tp_rank=load_config.tp_rank,
-            instance_ip=instance_ip,
-        )
+            instance_ip=instance_ip)
         torch.cuda.synchronize()
         end_build_group_tic = time.time()
         logger.debug(
@@ -1006,9 +973,7 @@ class RemoteInstanceModelLoader(BaseModelLoader):
                     load_config.remote_instance_weight_loader_seed_instance_ip,
                     load_config.remote_instance_weight_loader_seed_instance_service_port,
                     load_config.remote_instance_weight_loader_send_weights_group_ports,
-                    instance_ip,
-                ),
-            )
+                    instance_ip))
             t.start()
 
         start_get_weights_tic = time.time()
@@ -1017,8 +982,7 @@ class RemoteInstanceModelLoader(BaseModelLoader):
                 torch.distributed.broadcast(
                     tensor.data,
                     src=0,
-                    group=client._model_update_group,
-                )
+                    group=client._model_update_group)
             torch.cuda.synchronize()
 
             if hasattr(model, "post_load_weights"):
@@ -1079,8 +1043,7 @@ class RemoteInstanceModelLoader(BaseModelLoader):
             seed_transfer_engine_session_id,
             client_ptr_list,
             seed_ptr_list,
-            client_len_list,
-        )
+            client_len_list)
         if ret < 0:
             logger.error(f"batch transfer failed, error: {ret}")
             return False
@@ -1101,8 +1064,7 @@ class RemoteModelLoader(BaseModelLoader):
 
     def _get_weights_iterator_kv(
         self,
-        client,
-    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        client) -> Generator[Tuple[str, torch.Tensor], None, None]:
         """Get an iterator for the model weights from remote storage."""
         assert get_connector_type(client) == ConnectorType.KV
         rank = get_tensor_model_parallel_rank()
@@ -1110,8 +1072,7 @@ class RemoteModelLoader(BaseModelLoader):
 
     def _get_weights_iterator_fs(
         self,
-        client,
-    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        client) -> Generator[Tuple[str, torch.Tensor], None, None]:
         """Get an iterator for the model weights from remote storage."""
         assert get_connector_type(client) == ConnectorType.FS
         return client.weight_iterator()
@@ -1123,8 +1084,7 @@ class RemoteModelLoader(BaseModelLoader):
     def save_model(
         model: torch.nn.Module,
         model_path: str,
-        url: str,
-    ) -> None:
+        url: str) -> None:
         with create_remote_connector(url) as client:
             assert get_connector_type(client) == ConnectorType.KV
             model_name = parse_model_name(url)
@@ -1169,8 +1129,7 @@ class RemoteModelLoader(BaseModelLoader):
                     "loading tensor of shape %s into " "parameter '%s' of shape %s",
                     tensor.shape,
                     key,
-                    param_shape,
-                )
+                    param_shape)
             param_data.copy_(tensor)
             state_dict.pop(key)
         if state_dict:
@@ -1201,8 +1160,7 @@ class RemoteModelLoader(BaseModelLoader):
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
         logger.info("Loading weights from remote storage ...")
         start = time.perf_counter()
         load_config = self.load_config
@@ -1240,14 +1198,12 @@ def load_model_with_cpu_quantization(
     self,
     *,
     model_config: ModelConfig,
-    device_config: DeviceConfig,
-) -> nn.Module:
+    device_config: DeviceConfig) -> nn.Module:
     target_device = torch.device(device_config.device)
     with set_default_torch_dtype(model_config.dtype):
         model = _initialize_model(
             model_config,
-            self.load_config,
-        )
+            self.load_config)
 
         if not isinstance(self, DummyModelLoader):
             model.load_weights(self._get_all_weights(model_config, model))
@@ -1284,8 +1240,7 @@ class ModelOptModelLoader(DefaultModelLoader):
         quant_cfg,
         quantized_ckpt_restore_path: str | None = None,
         quantized_ckpt_save_path: str | None = None,
-        export_path: str | None = None,
-    ) -> None:
+        export_path: str | None = None) -> None:
         """
         Set up ModelOpt quantization for the given model.
 
@@ -1338,8 +1293,7 @@ class ModelOptModelLoader(DefaultModelLoader):
 
             from modelopt.torch.utils.dataset_utils import (
                 create_forward_loop,
-                get_dataset_dataloader,
-            )
+                get_dataset_dataloader)
 
             # Create calibration dataloader
             calib_dataloader = get_dataset_dataloader(
@@ -1348,8 +1302,7 @@ class ModelOptModelLoader(DefaultModelLoader):
                 batch_size=36,  # TODO: Consider making this configurable
                 num_samples=512,  # TODO: Consider making this configurable
                 device=model.device,
-                include_labels=False,
-            )
+                include_labels=False)
 
             calibrate_loop = create_forward_loop(dataloader=calib_dataloader)
 
@@ -1400,8 +1353,7 @@ class ModelOptModelLoader(DefaultModelLoader):
         model,
         export_path: str,
         model_path: str = None,
-        trust_remote_code: bool = True,
-    ) -> None:
+        trust_remote_code: bool = True) -> None:
         """
         Export the quantized model to HuggingFace format using ModelOpt export API.
 
@@ -1445,8 +1397,7 @@ class ModelOptModelLoader(DefaultModelLoader):
         self,
         *,
         model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
+        device_config: DeviceConfig) -> nn.Module:
 
         logger.info("ModelOptModelLoader: Loading base model...")
 
@@ -1531,8 +1482,7 @@ class ModelOptModelLoader(DefaultModelLoader):
                 quant_cfg,
                 quantized_ckpt_restore_path=quantized_ckpt_restore_path,
                 quantized_ckpt_save_path=quantized_ckpt_save_path,
-                export_path=export_path,
-            )
+                export_path=export_path)
         except Exception as e:
             logger.warning(f"ModelOpt quantization failed: {e}")
             rank0_log("Proceeding without quantization...")

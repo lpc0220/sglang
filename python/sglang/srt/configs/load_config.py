@@ -7,8 +7,6 @@ from typing import Any, List, Optional, Union
 import orjson
 
 from sglang.srt.configs.modelopt_config import ModelOptConfig
-from sglang.srt.utils import is_hip
-
 logger = logging.getLogger(__name__)
 
 
@@ -102,8 +100,7 @@ class LoadConfig:
         if self.ignore_patterns is not None and len(self.ignore_patterns) > 0:
             logger.info(
                 "Ignoring the following patterns when downloading weights: %s",
-                self.ignore_patterns,
-            )
+                self.ignore_patterns)
         else:
             self.ignore_patterns = ["original/**/*"]
 
@@ -112,8 +109,7 @@ class LoadConfig:
             self.modelopt_config = ModelOptConfig(
                 checkpoint_restore_path=self.modelopt_checkpoint_restore_path,
                 checkpoint_save_path=self.modelopt_checkpoint_save_path,
-                export_path=self.modelopt_export_path,
-            )
+                export_path=self.modelopt_export_path)
 
     def _verify_load_format(self) -> None:
         if not isinstance(self.load_format, str):

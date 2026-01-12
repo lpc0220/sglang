@@ -25,20 +25,16 @@ from xgrammar import (
     GrammarMatcher,
     StructuralTagItem,
     TokenizerInfo,
-    allocate_token_bitmask,
-)
+    allocate_token_bitmask)
 
 from sglang.srt.constrained.base_grammar_backend import (
     INVALID_GRAMMAR_OBJ,
     BaseGrammarBackend,
     BaseGrammarObject,
-    GrammarStats,
-)
+    GrammarStats)
 from sglang.srt.constrained.utils import is_legacy_structural_tag
-from sglang.srt.utils import is_hip
     from sglang.srt.constrained.triton_ops.bitmask_ops import (
-        apply_token_bitmask_inplace_triton,
-    )
+        apply_token_bitmask_inplace_triton)
 
 
 logger = logging.getLogger(__name__)
@@ -54,8 +50,7 @@ class XGrammarGrammar(BaseGrammarObject):
         ctx: CompiledGrammar,
         override_stop_tokens: Optional[Union[List[int], int]],
         key_string: Optional[str] = None,  # TODO (sk): for debugging, remove later
-        grammar_stats: Optional[GrammarStats] = GrammarStats(),
-    ) -> None:
+        grammar_stats: Optional[GrammarStats] = GrammarStats()) -> None:
         super().__init__()
         self.matcher = matcher
         self.vocab_size = vocab_size
@@ -114,8 +109,7 @@ class XGrammarGrammar(BaseGrammarObject):
         matcher = GrammarMatcher(
             self.ctx,
             max_rollback_tokens=MAX_ROLLBACK_TOKENS,
-            override_stop_tokens=self.override_stop_tokens,
-        )
+            override_stop_tokens=self.override_stop_tokens)
         return XGrammarGrammar(
             matcher,
             self.vocab_size,
@@ -124,8 +118,7 @@ class XGrammarGrammar(BaseGrammarObject):
             self.key_string,
             dataclasses.replace(
                 self.grammar_stats, is_cache_hit=True, tree_traversal_time=[]
-            ),
-        )
+            ))
 
     def try_jump_forward(self, tokenizer) -> Optional[Tuple[List[int], str]]:
         s = self.matcher.find_jump_forward_string()
@@ -170,8 +163,7 @@ class XGrammarGrammarBackend(BaseGrammarBackend):
         tokenizer,
         vocab_size: int,
         model_eos_token_ids: Optional[List[int]] = None,
-        any_whitespace: bool = True,
-    ):
+        any_whitespace: bool = True):
         super().__init__()
 
         if hasattr(tokenizer, "init_xgrammar"):
@@ -235,16 +227,14 @@ class XGrammarGrammarBackend(BaseGrammarBackend):
         matcher = GrammarMatcher(
             ctx,
             max_rollback_tokens=MAX_ROLLBACK_TOKENS,
-            override_stop_tokens=self.override_stop_tokens,
-        )
+            override_stop_tokens=self.override_stop_tokens)
         return XGrammarGrammar(
             matcher,
             self.vocab_size,
             ctx,
             self.override_stop_tokens,
             key_string,
-            grammar_stats,
-        )
+            grammar_stats)
 
     def dispatch_json(self, key_string: str) -> Optional[XGrammarGrammar]:
         try:
@@ -287,8 +277,7 @@ class XGrammarGrammarBackend(BaseGrammarBackend):
                     StructuralTagItem(
                         begin=structure["begin"],
                         schema=json.dumps(structure["schema"]),
-                        end=structure["end"],
-                    )
+                        end=structure["end"])
                     for structure in structural_tag["structures"]
                 ]
                 ctx = self.grammar_compiler.compile_structural_tag(

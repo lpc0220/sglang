@@ -21,7 +21,7 @@ from sglang.srt.compilation.compiler_interface import EagerAdapter, InductorAdap
 from sglang.srt.compilation.cuda_piecewise_backend import CUDAPiecewiseBackend
 from sglang.srt.compilation.npu_piecewise_backend import NPUPiecewiseBackend
 from sglang.srt.compilation.pass_manager import PostGradPassManager
-from sglang.srt.utils.common import is_npu, rank0_log
+from sglang.srt.utils.common import rank0_log
 
 logger = logging.getLogger(__name__)
 

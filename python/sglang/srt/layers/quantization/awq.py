@@ -47,7 +47,7 @@ if TYPE_CHECKING:
         StandardDispatchOutput,
     )
 
-from sglang.srt.utils import is_cuda, is_xpu
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
     warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")

@@ -11,13 +11,11 @@ import torch
 from sglang.srt.managers.io_struct import ProfileReqOutput
 from sglang.srt.model_executor.forward_batch_info import ForwardMode
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import is_npu
 class ProfileManager:
     def __init__(self, tp_rank: int, cpu_group, gpu_id: int):
         self.stage_based_trigger = _StageBasedTrigger(
             on_start=self._do_start,
-            on_stop=self._do_stop,
-        )
+            on_stop=self._do_stop)
         self.tp_rank = tp_rank
         self.cpu_group = cpu_group
         self.first_rank_in_node = gpu_id == get_global_server_args().base_gpu_id
@@ -44,8 +42,7 @@ class ProfileManager:
         profile_id: str,
         merge_profiles: bool,
         profile_prefix: str,
-        profile_stages: Optional[List[str]] = None,
-    ):
+        profile_stages: Optional[List[str]] = None):
         # not supported yet
         assert start_step is None
         assert (
@@ -64,13 +61,11 @@ class ProfileManager:
             record_shapes=record_shapes,
             output_dir=output_dir,
             output_prefix=profile_prefix,
-            profile_id=profile_id,
-        )
+            profile_id=profile_id)
 
         self.stage_based_trigger.configure(
             num_steps=num_steps,
-            interesting_stages=profile_stages or ["prefill", "decode"],
-        )
+            interesting_stages=profile_stages or ["prefill", "decode"])
 
         return ProfileReqOutput(success=True, message="Succeeded")
 
@@ -84,8 +79,7 @@ class ProfileManager:
         logger.info(
             f"Profiling starts{f' for {stage}' if stage else ''}. "
             f"Traces will be saved to: {self.profiler_kwargs['output_dir']} "
-            f"(with profile id: {self.profiler_kwargs['profile_id']})",
-        )
+            f"(with profile id: {self.profiler_kwargs['profile_id']})")
 
         assert self.profiler is None
         self.profiler = _ProfilerBase.create(
@@ -93,8 +87,7 @@ class ProfileManager:
             tp_rank=self.tp_rank,
             cpu_group=self.cpu_group,
             first_rank_in_node=self.first_rank_in_node,
-            output_suffix=f"-{stage}" if stage else "",
-        )
+            output_suffix=f"-{stage}" if stage else "")
         self.profiler.start()
 
     def _do_stop(self):
@@ -163,8 +156,7 @@ class _StageBasedTrigger:
         if (self.running_state is None) and (stage in self.stage_configs):
             self.running_state = self._RunningState(
                 curr_stage=stage,
-                curr_count=0,
-            )
+                curr_count=0)
             self.on_start(stage=stage)
 
         # Sanity check
@@ -186,8 +178,7 @@ class _ProfilerBase(ABC):
                     **kwargs,
                     activities=activities,
                     with_stack=with_stack,
-                    record_shapes=record_shapes,
-                )
+                    record_shapes=record_shapes)
             )
         if "MEM" in activities:
             inners.append(_ProfilerMemory(**kwargs))
@@ -227,8 +218,7 @@ class _ProfilerConcreteBase(_ProfilerBase):
         profile_id: str,
         tp_rank: int,
         cpu_group,
-        first_rank_in_node: bool,
-    ):
+        first_rank_in_node: bool):
         self.output_dir = output_dir
         self.output_prefix = output_prefix
         self.output_suffix = output_suffix
@@ -306,8 +296,7 @@ class _ProfilerMemory(_ProfilerConcreteBase):
             str(time.time())
             + f"-TP-{self.tp_rank}-memory"
             + self.output_suffix
-            + ".pickle",
-        )
+            + ".pickle")
         torch.cuda.memory._dump_snapshot(memory_profile_path)
         torch.cuda.memory._record_memory_history(enabled=None)
 
@@ -334,8 +323,7 @@ class _ProfilerRPD(_ProfilerConcreteBase):
 
         self.rpd_profile_path = os.path.join(
             self.output_dir,
-            "rpd-" + str(time.time()) + f"-TP-{self.tp_rank}" + ".trace.json.gz",
-        )
+            "rpd-" + str(time.time()) + f"-TP-{self.tp_rank}" + ".trace.json.gz")
 
         if self.tp_rank == 0:
             import sqlite3

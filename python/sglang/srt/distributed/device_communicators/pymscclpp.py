@@ -11,8 +11,7 @@ import torch.distributed as dist
 from torch.distributed import ProcessGroup, ReduceOp
 
 import sglang.srt.distributed.device_communicators.custom_all_reduce_ops as ops
-from sglang.srt.utils import is_hip
-
+from sglang.srt.utils 
 logger = logging.getLogger(__name__)
 
 

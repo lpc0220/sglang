@@ -10,8 +10,7 @@ from sglang.srt.distributed.parallel_state import get_world_group
 from sglang.srt.layers.dp_attention import get_attention_tp_size
 from sglang.srt.mem_cache.allocator import (
     PagedTokenToKVPoolAllocator,
-    TokenToKVPoolAllocator,
-)
+    TokenToKVPoolAllocator)
 from sglang.srt.mem_cache.memory_pool import (
     DoubleSparseTokenToKVPool,
     HybridLinearKVPool,
@@ -21,14 +20,11 @@ from sglang.srt.mem_cache.memory_pool import (
     MLATokenToKVPool,
     MLATokenToKVPoolFP4,
     NSATokenToKVPool,
-    ReqToTokenPool,
-)
+    ReqToTokenPool)
 from sglang.srt.mem_cache.swa_memory_pool import SWAKVPool, SWATokenToKVPoolAllocator
 from sglang.srt.utils.common import (
     get_available_gpu_memory,
-    is_float4_e2m1fn_x2,
-    is_npu,
-)
+    is_float4_e2m1fn_x2)
 
 if TYPE_CHECKING:
     from sglang.srt.model_executor.model_runner import ModelRunner
@@ -111,16 +107,14 @@ class ModelRunnerKVCacheMixin:
             self.device,
             self.gpu_id,
             distributed=get_world_group().world_size > 1,
-            cpu_group=get_world_group().cpu_group,
-        )
+            cpu_group=get_world_group().cpu_group)
 
         # Get the number of layers used for KV cache calculation
         if self.is_draft_worker:
             num_layers = getattr(
                 self.model_config.hf_config,
                 "num_nextn_predict_layers",
-                self.num_effective_layers,
-            )
+                self.num_effective_layers)
         elif mambaish := self.mambaish_config:
             num_layers = len(mambaish.full_attention_layer_ids)
         else:
@@ -253,10 +247,8 @@ class ModelRunnerKVCacheMixin:
                     int(
                         self.max_total_num_tokens / self.model_config.context_len * 512
                     ),
-                    2048,
-                ),
-                4096,
-            )
+                    2048),
+                4096)
 
         if self.mambaish_config is not None:
             additional_ratio = 0
@@ -309,8 +301,7 @@ class ModelRunnerKVCacheMixin:
             torch.distributed.all_reduce(
                 tensor,
                 op=torch.distributed.ReduceOp.MIN,
-                group=get_world_group().cpu_group,
-            )
+                group=get_world_group().cpu_group)
             self.max_total_num_tokens = tensor.item()
 
         # create token size for hybrid cache
@@ -333,8 +324,7 @@ class ModelRunnerKVCacheMixin:
             if self.server_args.disaggregation_mode == "decode":
                 from sglang.srt.disaggregation.decode import (
                     DecodeReqToTokenPool,
-                    HybridMambaDecodeReqToTokenPool,
-                )
+                    HybridMambaDecodeReqToTokenPool)
 
                 # subscribe memory for pre-allocated requests
                 # if max_num_reqs <= 32, we pre-allocate 2x requests
@@ -349,8 +339,7 @@ class ModelRunnerKVCacheMixin:
                         cache_params=config.mamba2_cache_params,
                         speculative_num_draft_tokens=self.server_args.speculative_num_draft_tokens,
                         enable_mamba_extra_buffer=self.server_args.enable_mamba_extra_buffer(),
-                        pre_alloc_size=pre_alloc_size,
-                    )
+                        pre_alloc_size=pre_alloc_size)
                 else:
                     self.req_to_token_pool = DecodeReqToTokenPool(
                         size=max_num_reqs,
@@ -358,8 +347,7 @@ class ModelRunnerKVCacheMixin:
                         + extra_max_context_len,
                         device=self.device,
                         enable_memory_saver=self.server_args.enable_memory_saver,
-                        pre_alloc_size=pre_alloc_size,
-                    )
+                        pre_alloc_size=pre_alloc_size)
             elif config := self.mambaish_config:
                 self.req_to_token_pool = HybridReqToTokenPool(
                     size=max_num_reqs,
@@ -371,16 +359,14 @@ class ModelRunnerKVCacheMixin:
                     enable_memory_saver=self.server_args.enable_memory_saver,
                     cache_params=config.mamba2_cache_params,
                     enable_mamba_extra_buffer=self.server_args.enable_mamba_extra_buffer(),
-                    speculative_num_draft_tokens=self.server_args.speculative_num_draft_tokens,
-                )
+                    speculative_num_draft_tokens=self.server_args.speculative_num_draft_tokens)
             else:
                 self.req_to_token_pool = ReqToTokenPool(
                     size=max_num_reqs,
                     max_context_len=self.model_config.context_len
                     + extra_max_context_len,
                     device=self.device,
-                    enable_memory_saver=self.server_args.enable_memory_saver,
-                )
+                    enable_memory_saver=self.server_args.enable_memory_saver)
         else:
             # Draft worker shares req_to_token_pool with the target worker.
             assert self.is_draft_worker
@@ -389,8 +375,7 @@ class ModelRunnerKVCacheMixin:
         is_nsa_model = is_deepseek_nsa(self.model_config.hf_config)
         if self.server_args.attention_backend == "ascend":
             if self.use_mla_backend:
-                    NPUMLATokenToKVPool,
-                )
+                    NPUMLATokenToKVPool)
 
                 self.token_to_kv_pool = NPUMLATokenToKVPool(
                     self.max_total_num_tokens,
@@ -403,11 +388,9 @@ class ModelRunnerKVCacheMixin:
                     device=self.device,
                     enable_memory_saver=self.server_args.enable_memory_saver,
                     start_layer=self.start_layer,
-                    end_layer=self.end_layer,
-                )
+                    end_layer=self.end_layer)
             else:
-                    NPUMHATokenToKVPool,
-                )
+                    NPUMHATokenToKVPool)
 
                 self.token_to_kv_pool = NPUMHATokenToKVPool(
                     self.max_total_num_tokens,
@@ -421,8 +404,7 @@ class ModelRunnerKVCacheMixin:
                     device=self.device,
                     enable_memory_saver=self.server_args.enable_memory_saver,
                     start_layer=self.start_layer,
-                    end_layer=self.end_layer,
-                )
+                    end_layer=self.end_layer)
         elif self.use_mla_backend and is_nsa_model:
             self.token_to_kv_pool = NSATokenToKVPool(
                 self.max_total_num_tokens,
@@ -435,8 +417,7 @@ class ModelRunnerKVCacheMixin:
                 enable_memory_saver=self.server_args.enable_memory_saver,
                 start_layer=self.start_layer,
                 end_layer=self.end_layer,
-                index_head_dim=get_nsa_index_head_dim(self.model_config.hf_config),
-            )
+                index_head_dim=get_nsa_index_head_dim(self.model_config.hf_config))
         elif self.use_mla_backend and not self.mambaish_config:
             assert not is_nsa_model
             if is_float4_e2m1fn_x2(self.kv_cache_dtype):
@@ -450,8 +431,7 @@ class ModelRunnerKVCacheMixin:
                     device=self.device,
                     enable_memory_saver=self.server_args.enable_memory_saver,
                     start_layer=self.start_layer,
-                    end_layer=self.end_layer,
-                )
+                    end_layer=self.end_layer)
             else:
                 self.token_to_kv_pool = MLATokenToKVPool(
                     self.max_total_num_tokens,
@@ -463,8 +443,7 @@ class ModelRunnerKVCacheMixin:
                     device=self.device,
                     enable_memory_saver=self.server_args.enable_memory_saver,
                     start_layer=self.start_layer,
-                    end_layer=self.end_layer,
-                )
+                    end_layer=self.end_layer)
         elif self.server_args.enable_double_sparsity:
             self.token_to_kv_pool = DoubleSparseTokenToKVPool(
                 self.max_total_num_tokens,
@@ -477,8 +456,7 @@ class ModelRunnerKVCacheMixin:
                 heavy_channel_num=self.server_args.ds_heavy_channel_num,
                 enable_memory_saver=self.server_args.enable_memory_saver,
                 start_layer=self.start_layer,
-                end_layer=self.end_layer,
-            )
+                end_layer=self.end_layer)
         else:
             if self.is_hybrid_swa:
                 kwargs = {}
@@ -487,8 +465,7 @@ class ModelRunnerKVCacheMixin:
                         "swa_head_num": max(
                             1,
                             self.model_config.hf_text_config.swa_num_key_value_heads
-                            // get_attention_tp_size(),
-                        ),
+                            // get_attention_tp_size()),
                         "swa_head_dim": self.model_config.hf_text_config.swa_head_dim,
                         "swa_v_head_dim": self.model_config.hf_text_config.swa_v_head_dim,
                         "v_head_dim": self.model_config.hf_text_config.v_head_dim,
@@ -506,8 +483,7 @@ class ModelRunnerKVCacheMixin:
                     full_attention_layer_ids=self.model_config.full_attention_layer_ids,
                     enable_kvcache_transpose=False,
                     device=self.device,
-                    **kwargs,
-                )
+                    **kwargs)
             elif config := self.mambaish_config:
                 extra_args = {}
                 if self.use_mla_backend:
@@ -532,8 +508,7 @@ class ModelRunnerKVCacheMixin:
                     mamba_pool=self.req_to_token_pool.mamba_pool,
                     enable_memory_saver=self.server_args.enable_memory_saver,
                     use_mla=self.use_mla_backend,
-                    **extra_args,
-                )
+                    **extra_args)
             else:
                 if is_float4_e2m1fn_x2(self.kv_cache_dtype):
                     self.token_to_kv_pool = MHATokenToKVPoolFP4(
@@ -552,8 +527,7 @@ class ModelRunnerKVCacheMixin:
                         enable_alt_stream=not self.server_args.enable_pdmux,
                         enable_kv_cache_copy=(
                             self.server_args.speculative_algorithm is not None
-                        ),
-                    )
+                        ))
                 else:
                     self.token_to_kv_pool = MHATokenToKVPool(
                         self.max_total_num_tokens,
@@ -571,8 +545,7 @@ class ModelRunnerKVCacheMixin:
                         enable_alt_stream=not self.server_args.enable_pdmux,
                         enable_kv_cache_copy=(
                             self.server_args.speculative_algorithm is not None
-                        ),
-                    )
+                        ))
 
         # Initialize token_to_kv_pool_allocator
         need_sort = self.server_args.disaggregation_mode in ("decode", "prefill")
@@ -581,8 +554,7 @@ class ModelRunnerKVCacheMixin:
                 self.server_args.attention_backend == "ascend"
                 or self.hybrid_gdn_config is not None
             ):
-                    NPUPagedTokenToKVPoolAllocator,
-                )
+                    NPUPagedTokenToKVPoolAllocator)
 
                 self.token_to_kv_pool_allocator = NPUPagedTokenToKVPoolAllocator(
                     self.max_total_num_tokens,
@@ -590,8 +562,7 @@ class ModelRunnerKVCacheMixin:
                     dtype=self.kv_cache_dtype,
                     device=self.device,
                     kvcache=self.token_to_kv_pool,
-                    need_sort=need_sort,
-                )
+                    need_sort=need_sort)
             else:
                 if self.is_hybrid_swa:
                     self.token_to_kv_pool_allocator = SWATokenToKVPoolAllocator(
@@ -601,8 +572,7 @@ class ModelRunnerKVCacheMixin:
                         dtype=self.kv_cache_dtype,
                         device=self.device,
                         kvcache=self.token_to_kv_pool,
-                        need_sort=need_sort,
-                    )
+                        need_sort=need_sort)
                 else:
                     if self.page_size == 1:
                         self.token_to_kv_pool_allocator = TokenToKVPoolAllocator(
@@ -610,8 +580,7 @@ class ModelRunnerKVCacheMixin:
                             dtype=self.kv_cache_dtype,
                             device=self.device,
                             kvcache=self.token_to_kv_pool,
-                            need_sort=need_sort,
-                        )
+                            need_sort=need_sort)
                     else:
                         self.token_to_kv_pool_allocator = PagedTokenToKVPoolAllocator(
                             self.max_total_num_tokens,
@@ -619,8 +588,7 @@ class ModelRunnerKVCacheMixin:
                             dtype=self.kv_cache_dtype,
                             device=self.device,
                             kvcache=self.token_to_kv_pool,
-                            need_sort=need_sort,
-                        )
+                            need_sort=need_sort)
 
         else:
             assert self.is_draft_worker
