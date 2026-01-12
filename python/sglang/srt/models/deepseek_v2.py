@@ -3049,8 +3049,6 @@ class DeepseekV2ForCausalLM(nn.Module):
                     self_attn.w_kc, w_kc.transpose(1, 2).contiguous().transpose(1, 2)
                 )
                 w_vc = w_vc.contiguous().transpose(1, 2)
-                if _is_npu:
-                    w_vc = w_vc.contiguous()
                 self_attn.w_vc = bind_or_assign(self_attn.w_vc, w_vc)
                 if (
                     hasattr(self_attn.kv_b_proj, "weight_scale")
@@ -3196,8 +3194,6 @@ class DeepseekV2ForCausalLM(nn.Module):
                     # Skip non-stacked layers and experts (experts handled below).
                     if weight_name not in name:
                         continue
-                    if _is_npu:
-                        name = name.replace("weight_packed", "weight")
                     # We have mlp.experts[0].gate_proj in the checkpoint.
                     # Since we handle the experts below in expert_params_mapping,
                     # we need to skip here BEFORE we update the name, otherwise
@@ -3225,8 +3221,6 @@ class DeepseekV2ForCausalLM(nn.Module):
                         param_name, weight_name, expert_id, shard_id = mapping
                         if weight_name not in name:
                             continue
-                        if _is_npu:
-                            name = name.replace("weight_packed", "weight")
                         name = name.replace(weight_name, param_name)
                         if name not in params_dict:
                             continue

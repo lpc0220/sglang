@@ -42,7 +42,6 @@ from sglang.srt.layers.quantization.utils import (
 from sglang.srt.utils import (
     get_bool_env_var,
     is_cuda,
-    is_hip,
     next_power_of_2,
     set_weight_attrs,
 )
@@ -57,14 +56,11 @@ if TYPE_CHECKING:
         CompressedTensorsConfig,
     )
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
 
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _use_aiter:
-    from aiter import ActivationType, QuantType
-    from aiter.fused_moe import fused_moe
+        from aiter.fused_moe import fused_moe
     from aiter.ops.shuffle import shuffle_weight
 
 
@@ -760,7 +756,7 @@ class CompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsMoEMethod):
                 max_w13_scales, requires_grad=False
             )
 
-        if self.weight_quant.strategy == QuantizationStrategy.CHANNEL and _use_aiter:
+        if self.weight_quant.strategy == QuantizationStrategy.CHANNEL:
             with torch.no_grad():
                 # Pre-shuffle weights
                 layer.w13_weight = torch.nn.Parameter(
@@ -793,7 +789,7 @@ class CompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsMoEMethod):
 
         moe_runner_config = self.moe_runner_config
 
-        if _use_aiter and self.weight_quant.strategy == QuantizationStrategy.CHANNEL:
+        if self.weight_quant.strategy == QuantizationStrategy.CHANNEL:
             assert not moe_runner_config.no_combine, "unsupported"
             topk_weights, topk_ids, _ = topk_output
             if moe_runner_config.apply_router_weight_on_input:

@@ -30,7 +30,7 @@ from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.quantization.fp8 import Fp8Config
 from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
 from sglang.srt.layers.quantization.w4afp8 import W4AFp8Config, W4AFp8MoEMethod
-from sglang.srt.utils import get_bool_env_var, is_hip, is_npu
+from sglang.srt.utils import get_bool_env_var, is_npu
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher import (
@@ -39,16 +39,8 @@ if TYPE_CHECKING:
         DispatchOutput,
     )
 
-_is_hip = is_hip()
 _is_npu = is_npu()
 _is_fp8_fnuz = is_fp8_fnuz()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
-
-if _use_aiter:
-    from aiter import ActivationType, QuantType
-    from aiter.fused_moe import fused_moe
-elif _is_npu:
-    import torch_npu
 
 
 logger = logging.getLogger(__name__)
@@ -95,7 +87,7 @@ class DeepEPMoE(FusedMoE):
             routed_scaling_factor=routed_scaling_factor,
             **kwargs,
         )
-        if _use_aiter or _is_npu:
+        if _is_npu:
             self.deprecate_flag = False
         elif deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM and isinstance(
             quant_config, Fp8Config
@@ -137,19 +129,6 @@ class DeepEPMoE(FusedMoE):
             assert (
                 deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM
             ), f"DeepEP {self.deepep_mode} mode requires deep_gemm"
-        if _use_aiter:
-            # expert_mask is of size (self.num_local_experts + 1),
-            # the extra 1 is for invalid rank_id (in original deepep, the invalid rank_id is -1, but aiter does not allow -1, we use a mask to make those ids invalid)
-            # for instance, if we have 4 experts on this rank, we would have a expert_mask like:
-            #     self.expert_mask = [1, 1, 1, 1, 0]
-            # idx from 0-3 is valid and will be processed, while idx == 4 will be masked out
-            self.expert_mask = torch.zeros(
-                (self.num_local_experts + 1),
-                device=torch.cuda.current_device(),
-                dtype=torch.int,
-            )
-            # the last one is invalid rank_id
-            self.expert_mask[:-1] = 1
 
     def forward(
         self,
@@ -215,11 +194,7 @@ class DeepEPMoE(FusedMoE):
 
         from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker
 
-        if _use_aiter:
-            assert DispatchOutputChecker.format_is_deepep(dispatch_output)
-            # in forward_aiter, we skip token permutation and unpermutation, which have been fused inside aiter kernel
-            output = self.forward_aiter(dispatch_output)
-        elif _is_npu:
+        if _is_npu:
             assert DispatchOutputChecker.format_is_deepep(dispatch_output)
             output = self.forward_npu(dispatch_output)
         elif DispatchOutputChecker.format_is_deepep_normal(dispatch_output):
@@ -261,40 +236,6 @@ class DeepEPMoE(FusedMoE):
             topk_ids=topk_ids,
             topk_weights=topk_weights,
             overlap_args=overlap_args,
-        )
-
-    def forward_aiter(
-        self,
-        dispatch_output: Union[DeepEPNormalDispatchOutput, DeepEPLLDispatchOutput],
-    ):
-        hidden_states, topk_ids, topk_weights = (
-            dispatch_output.hidden_states,
-            dispatch_output.topk_ids,
-            dispatch_output.topk_weights,
-        )
-        if hidden_states.shape[0] == 0:
-            return hidden_states
-        # in original deepep, idx == -1 meaning invalid and will not be processed.
-        # aiter does not accept -1, we use a expert mask to make these idx invalid
-        # (idx == num_local_experts) meaning not used in aiter fused_moe
-        topk_ids_copy = topk_ids.to(torch.int32)
-        topk_ids_copy[topk_ids_copy == -1] = self.num_local_experts
-
-        return fused_moe(
-            hidden_states,
-            self.w13_weight,
-            self.w2_weight,
-            topk_weights,
-            topk_ids_copy,
-            w1_scale=self.w13_weight_scale_inv,
-            w2_scale=self.w2_weight_scale_inv,
-            quant_type=QuantType.per_128x128,
-            activation=(
-                ActivationType.Silu
-                if self.moe_runner_config.activation == "silu"
-                else ActivationType.Gelu
-            ),
-            expert_mask=self.expert_mask,
         )
 
     def forward_flashinfer_cutedsl(

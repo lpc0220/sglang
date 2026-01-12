@@ -5,9 +5,6 @@ import triton
 import triton.language as tl
 
 from sglang.srt.layers.moe.topk import fused_topk
-from sglang.srt.utils import is_hip
-
-_is_hip = is_hip()
 
 
 @triton.jit
@@ -130,7 +127,7 @@ def fused_moe_router_cudacore(
     topk_ids = torch.empty((bs, topk), dtype=torch.int32, device=x.device)
     is_correction_bias = correction_bias is not None
 
-    max_warps = 16 if _is_hip else 32
+    max_warps = 32
     config = {
         "BLOCK_SIZE": triton.next_power_of_2(hidden_dim),
         "num_warps": max(

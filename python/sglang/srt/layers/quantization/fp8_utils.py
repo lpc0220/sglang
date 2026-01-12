@@ -42,25 +42,20 @@ from sglang.srt.utils import (
     is_blackwell_supported,
     is_cuda,
     is_flashinfer_available,
-    is_hip,
     is_sm90_supported,
     offloader,
 )
 
 logger = logging.getLogger(__name__)
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
 _is_fp8_fnuz = is_fp8_fnuz()
 
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _use_aiter:
     import aiter
 
-    # from aiter import gemm_a8w8_blockscale, gemm_a8w8_bpreshuffle, get_hip_quant
-    from aiter import gemm_a8w8_bpreshuffle, get_hip_quant
-    from aiter.ops.triton.gemm_a8w8_blockscale import gemm_a8w8_blockscale
+    #         from aiter.ops.triton.gemm_a8w8_blockscale import gemm_a8w8_blockscale
 
     aiter_per1x128_quant = get_hip_quant(aiter.QuantType.per_1x128)
 
@@ -89,12 +84,6 @@ def use_rowwise_torch_scaled_mm():
         _TORCH_VERSION_TUPLE = tuple(map(int, _TORCH_VERSION.split(".")[:3]))
     except ValueError:
         _TORCH_VERSION_TUPLE = (0, 0, 0)
-    if _is_hip:
-        # The condition to determine if it is on a platform that supports
-        # torch._scaled_mm rowwise feature.
-        # The condition is determined once as the operations
-        # are time consuming.
-        return get_device_capability() >= (9, 4) and _TORCH_VERSION_TUPLE >= (2, 7, 0)
     return False
 
 
@@ -1000,7 +989,7 @@ def apply_fp8_linear(
         use_per_token_if_dynamic
         and not per_tensor_weights
         and not per_tensor_activations
-        and (USE_ROWWISE_TORCH_SCALED_MM or _use_aiter)
+        and (USE_ROWWISE_TORCH_SCALED_MM)
     ):
         # into this sector means use dynamic per-token-per-channel quant
         # per-token scale quant for input matrix, every row(one token) have one scale factor

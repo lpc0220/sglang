@@ -30,14 +30,11 @@ from sglang.srt.utils import (
     get_device_core_count,
     get_device_name,
     is_cuda,
-    is_hip,
     log_info_on_rank0,
 )
 from sglang.srt.utils.custom_op import register_custom_op
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _is_cuda:
     from sgl_kernel import sgl_per_token_quant_fp8
@@ -59,8 +56,7 @@ if _is_cuda:
 if _is_hip:
     if _use_aiter:
         try:
-            from aiter import (  # v0.1.3
-                dynamic_per_tensor_quant,
+                            dynamic_per_tensor_quant,
                 dynamic_per_token_scaled_quant,
                 static_per_tensor_quant,
             )
@@ -77,9 +73,6 @@ logger = logging.getLogger(__name__)
 
 @lru_cache()
 def is_fp8_fnuz() -> bool:
-    if _is_hip:
-        # only device 0 is checked, this assumes MI300 platforms are homogeneous
-        return "gfx94" in torch.cuda.get_device_properties(0).gcnArchName
     return False
 
 
@@ -225,12 +218,6 @@ def _per_token_group_quant_8bit_raw(
     ), "the last dimension of `x` cannot be divisible by `group_size`"
     assert x.is_contiguous(), "`x` is not contiguous"
 
-    if _is_hip:
-        if dtype == torch.int8:
-            bit8_max = 127.0
-        else:
-            bit8_max = 224.0
-        bit8_min = -bit8_max  # TODO incorrect for int8
     else:
         if dtype == torch.int8:
             info = torch.iinfo(dtype)

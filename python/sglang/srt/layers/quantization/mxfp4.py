@@ -41,7 +41,6 @@ from sglang.srt.utils import (
     is_cuda,
     is_flashinfer_available,
     is_gfx95_supported,
-    is_hip,
     is_sm90_supported,
     is_sm100_supported,
     is_triton_kernels_available,
@@ -74,14 +73,12 @@ if TYPE_CHECKING:
         StandardDispatchOutput,
     )
 
-_is_hip = is_hip()
 _is_shuffle_moe_mxfp4 = is_gfx95_supported()
 
 if _is_hip:
     # import aiter
     try:
-        from aiter import ActivationType, QuantType
-        from aiter.fused_moe import fused_moe
+                from aiter.fused_moe import fused_moe
         from aiter.ops.shuffle import shuffle_weight
         from aiter.ops.triton.quant import dynamic_mxfp4_quant
         from aiter.utility.fp4_utils import e8m0_shuffle
@@ -182,18 +179,6 @@ class Mxfp4Config(QuantizationConfig):
         quant_method = cls.get_from_keys(config, ["quant_method"])
         is_checkpoint_mxfp4_serialized = "mxfp4" in quant_method
 
-        if _is_hip:
-            if mxfp_supported():
-                return cls(
-                    is_checkpoint_mxfp4_serialized=is_checkpoint_mxfp4_serialized
-                )
-            else:
-
-                platform = torch.cuda.get_device_properties(0).gcnArchName
-                raise ValueError(
-                    f"Current platform {platform} not support mxfp4 computation"
-                )
-
         return cls(is_checkpoint_mxfp4_serialized=is_checkpoint_mxfp4_serialized)
 
     @classmethod
@@ -229,8 +214,6 @@ class Mxfp4Config(QuantizationConfig):
                 ignored_layers=self.ignored_layers,
                 fused_mapping=self.packed_modules_mapping,
             ):
-                return UnquantizedLinearMethod()
-            elif _is_hip:
                 return UnquantizedLinearMethod()
         elif isinstance(layer, FusedMoE):
             if self.is_checkpoint_mxfp4_serialized:
@@ -827,11 +810,6 @@ class Mxfp4DynamicQuantMoEMethod(FusedMoEMethodBase):
         topk_output = dispatch_output.topk_output
 
         topk_weights, topk_ids, _ = topk_output
-        if _is_hip:
-            topk_weights = topk_weights.to(
-                torch.float32
-            )  # aiter's moe_sorting requires topk_weights to be FP32
-
         if hasattr(torch, "float4_e2m1fn_x2"):
             w13_weight = layer.w13_weight.view(torch.float4_e2m1fn_x2)
             w2_weight = layer.w2_weight.view(torch.float4_e2m1fn_x2)

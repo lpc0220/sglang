@@ -5,12 +5,11 @@ from typing import Tuple
 import torch
 import triton
 
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 
-if _is_cuda or _is_hip:
+if _is_cuda:
     from sgl_kernel import moe_align_block_size as sgl_moe_align_block_size
 
 

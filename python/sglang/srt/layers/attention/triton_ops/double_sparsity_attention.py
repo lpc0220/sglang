@@ -9,7 +9,6 @@ _is_cuda = is_cuda()
 if _is_cuda:
     CUDA_CAPABILITY = torch.cuda.get_device_capability()
 
-_is_hip = is_hip()
 
 if get_global_server_args().triton_attention_reduce_in_fp32:
     REDUCE_TRITON_TYPE = tl.float32
@@ -1032,10 +1031,6 @@ def extend_attention_fwd(
         BLOCK_DPE = 0
     BLOCK_DV = triton.next_power_of_2(Lv)
 
-    if _is_hip:
-        BLOCK_M, BLOCK_N = (64, 64)
-        num_warps = 4
-
     else:
         if _is_cuda and CUDA_CAPABILITY[0] >= 9:
             if Lq <= 256:
@@ -1062,9 +1057,6 @@ def extend_attention_fwd(
     num_stages = 1
 
     extra_kargs = {}
-    if _is_hip:
-        extra_kargs = {"waves_per_eu": 4, "matrix_instr_nonkdim": 16, "kpack": 2}
-
     _fwd_kernel[grid](
         q_extend,
         k_extend,

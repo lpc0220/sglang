@@ -29,8 +29,6 @@ from sglang.srt.utils import get_bool_env_var, is_hip
 
 __all__ = ["CompressedTensorsW8A8Fp8"]
 
-_is_hip = is_hip()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 if _use_aiter:
     from aiter.ops.shuffle import shuffle_weight
 
@@ -222,7 +220,7 @@ class CompressedTensorsW8A8Fp8(CompressedTensorsScheme):
                 bias=bias,
             )
 
-        if _use_aiter and self.strategy == QuantizationStrategy.CHANNEL:
+        if self.strategy == QuantizationStrategy.CHANNEL:
             return apply_fp8_ptpc_linear(
                 input=x,
                 weight=layer.weight,

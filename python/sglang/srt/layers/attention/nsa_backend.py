@@ -42,7 +42,6 @@ if TYPE_CHECKING:
     from sglang.srt.speculative.spec_info import SpecInput
 
 
-_is_hip = is_hip()
 
 if _is_hip:
     try:
@@ -296,13 +295,6 @@ class NativeSparseAttnBackend(
         self.enable_auto_select_prefill_impl = self.nsa_prefill_impl == "flashmla_auto"
 
         self._arange_buf = torch.arange(16384, device=self.device, dtype=torch.int32)
-
-        if _is_hip:
-            max_bs = model_runner.req_to_token_pool.size
-
-            self.kv_indptr = torch.zeros(
-                (max_bs + 1,), dtype=torch.int32, device=model_runner.device
-            )
 
         # Speculative decoding
         self.topk = model_runner.server_args.speculative_eagle_topk or 0

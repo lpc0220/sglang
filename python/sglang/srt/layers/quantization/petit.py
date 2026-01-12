@@ -23,7 +23,6 @@ from sglang.srt.layers.quantization.petit_utils import (
 from sglang.srt.layers.quantization.utils import is_layer_skipped
 from sglang.srt.utils import is_hip
 
-_is_hip = is_hip()
 
 # Initialize logger for the module
 logger = logging.getLogger(__name__)

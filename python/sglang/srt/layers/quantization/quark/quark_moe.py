@@ -16,7 +16,6 @@ from sglang.srt.layers.quantization.utils import all_close_1d, per_tensor_dequan
 from sglang.srt.utils import (
     get_bool_env_var,
     is_gfx95_supported,
-    is_hip,
     set_weight_attrs,
 )
 
@@ -34,11 +33,8 @@ _is_shuffle_moe_mxfp4 = is_gfx95_supported()
 __all__ = ["QuarkMoEMethod", "QuarkW4A4MXFp4MoEMethod"]
 
 _is_fp8_fnuz = is_fp8_fnuz()
-_is_hip = is_hip()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 if _use_aiter:
-    from aiter import ActivationType, QuantType
-    from aiter.fused_moe import fused_moe
+        from aiter.fused_moe import fused_moe
     from aiter.ops.shuffle import shuffle_weight
     from aiter.utility.fp4_utils import e8m0_shuffle
 
@@ -214,11 +210,6 @@ class QuarkW4A4MXFp4MoEMethod(QuarkMoEMethod):
         topk_output = dispatch_output.topk_output
         moe_runner_config = self.moe_runner_config
         topk_weights, topk_ids, _ = topk_output
-        if _is_hip:
-            topk_weights = topk_weights.to(
-                torch.float32
-            )  # aiter's moe_sorting requires topk_weights to be FP32
-
         if hasattr(torch, "float4_e2m1fn_x2"):
             w13_weight = layer.w13_weight.view(torch.float4_e2m1fn_x2)
             w2_weight = layer.w2_weight.view(torch.float4_e2m1fn_x2)

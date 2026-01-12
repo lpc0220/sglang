@@ -29,7 +29,6 @@ _is_cuda = is_cuda()
 if _is_cuda:
     CUDA_CAPABILITY = torch.cuda.get_device_capability()
 
-_is_hip = is_hip()
 
 
 def _get_block_sizes_for_extend_attention(Lq: int, Lv: int):
@@ -60,9 +59,6 @@ def _get_block_sizes_for_extend_attention(Lq: int, Lv: int):
     BLOCK_DV = triton.next_power_of_2(Lv)
 
     # Determine BLOCK_M, BLOCK_N, and num_warps based on hardware
-    if _is_hip:
-        BLOCK_M, BLOCK_N = (64, 64)
-        num_warps = 4
     else:
         if _is_cuda and CUDA_CAPABILITY[0] >= 9:
             # Hopper architecture (H100, etc.)
@@ -591,9 +587,6 @@ def extend_attention_fwd(
     num_stages = 1
 
     extra_kargs = {}
-    if _is_hip:
-        extra_kargs = {"waves_per_eu": 1, "matrix_instr_nonkdim": 16, "kpack": 2}
-
     _fwd_kernel[grid](
         q_extend,
         k_extend,
@@ -636,8 +629,7 @@ def extend_attention_fwd(
         IS_CAUSAL=is_causal,
         SKIP_PREFIX_CUSTOM_MASK=SKIP_PREFIX_CUSTOM_MASK,
         HAS_SINK=HAS_SINK,
-        STORE_TRANSPOSE=_is_hip,
-        num_warps=num_warps,
+        STORE_TRANSPOSE=_num_warps=num_warps,
         num_stages=num_stages,
         **extra_kargs,
     )
@@ -1000,9 +992,6 @@ def extend_attention_fwd_unified(
     num_stages = 1
 
     extra_kargs = {}
-    if _is_hip:
-        extra_kargs = {"waves_per_eu": 1, "matrix_instr_nonkdim": 16, "kpack": 2}
-
     _fwd_kernel_unified[grid](
         q,
         o,

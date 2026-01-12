@@ -8,7 +8,6 @@ from sglang.srt.layers.parameter import GroupQuantScaleParameter, PackedvLLMPara
 from sglang.srt.layers.quantization.quark.schemes import QuarkScheme
 from sglang.srt.utils import is_hip
 
-_is_hip = is_hip()
 if _is_hip:
     from aiter.ops.triton.gemm_afp4wfp4 import gemm_afp4wfp4
     from aiter.ops.triton.gemm_afp4wfp4_pre_quant_atomic import gemm_afp4wfp4_pre_quant

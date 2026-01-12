@@ -19,7 +19,7 @@ from sglang.srt.layers.moe.moe_runner.base import (
     register_pre_permute,
 )
 from sglang.srt.layers.moe.utils import MoeRunnerBackend
-from sglang.srt.utils import cpu_has_amx_support, is_cuda, is_hip
+from sglang.srt.utils import cpu_has_amx_support, is_cuda
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher.standard import (
@@ -28,27 +28,14 @@ if TYPE_CHECKING:
     )
 
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
-_use_aiter = bool(int(os.getenv("SGLANG_USE_AITER", "0")))
 _MOE_PADDING_SIZE = 128 if bool(int(os.getenv("SGLANG_MOE_PADDING", "0"))) else 0
 
 
-if _is_cuda or _is_hip:
+if _is_cuda:
     from sgl_kernel import gelu_and_mul, silu_and_mul
 
-    if _is_hip:
-        if _use_aiter:
-            try:
-                from aiter import moe_sum
-            except ImportError:
-                raise ImportError(
-                    "aiter is required when SGLANG_USE_AITER is set to True"
-                )
-        else:
-            from vllm import _custom_ops as vllm_ops  # moe_sum
-
-if _is_cuda or _is_hip:
+if _is_cuda:
     from sgl_kernel import (  # noqa: F401
         moe_align_block_size as sgl_moe_align_block_size,
     )
@@ -204,18 +191,20 @@ class TritonRunnerCore(MoeRunnerCore):
                     gemm1_alpha,
                     gemm1_limit,
                 )
-            elif _is_cuda or _is_hip:
+            elif _is_cuda:
                 silu_and_mul(intermediate_cache1.view(-1, N), intermediate_cache2)
             else:
+                from vllm import _custom_ops as vllm_ops
                 vllm_ops.silu_and_mul(
                     intermediate_cache2, intermediate_cache1.view(-1, N)
                 )
         elif activation == "gelu":
             assert gemm1_alpha is None, "gemm1_alpha is not supported for gelu"
             assert gemm1_limit is None, "gemm1_limit is not supported for gelu"
-            if _is_cuda or _is_hip:
+            if _is_cuda:
                 gelu_and_mul(intermediate_cache1.view(-1, N), intermediate_cache2)
             else:
+                from vllm import _custom_ops as vllm_ops
                 vllm_ops.gelu_and_mul(
                     intermediate_cache2, intermediate_cache1.view(-1, N)
                 )
@@ -297,18 +286,8 @@ class TritonRunnerCore(MoeRunnerCore):
                         out_hidden_states,
                         routed_scaling_factor,
                     )
-        elif _is_hip:
-            if _use_aiter:
-                moe_sum(
-                    intermediate_cache3.view(*intermediate_cache3.shape),
-                    out_hidden_states,
-                )
-            else:
-                vllm_ops.moe_sum(
-                    intermediate_cache3.view(*intermediate_cache3.shape),
-                    out_hidden_states,
-                )
         else:
+            from vllm import _custom_ops as vllm_ops
             vllm_ops.moe_sum(
                 intermediate_cache3.view(*intermediate_cache3.shape),
                 out_hidden_states,
@@ -390,7 +369,6 @@ def pre_permute_standard_to_triton(
     if (
         not (quant_info.use_fp8_w8a8 or quant_info.use_int8_w8a8)
         or quant_info.block_shape is not None
-        or _use_aiter
     ):
         padding_size = 0
     else:

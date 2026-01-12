@@ -54,7 +54,6 @@ from sglang.srt.utils import (
     get_bool_env_var,
     get_compiler_backend,
     is_cuda,
-    is_hip,
     is_npu,
 )
 from sglang.srt.utils.patch_torch import register_fake_if_exists
@@ -65,9 +64,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 _is_npu = is_npu()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _is_cuda:
     from sgl_kernel import moe_fused_gate
@@ -77,18 +74,13 @@ if _is_cuda:
     except ImportError as e:
         pass
 
-if _is_cuda or _is_hip:
+if _is_cuda:
     from sgl_kernel import topk_softmax
 
     try:
         from sgl_kernel import topk_sigmoid
     except ImportError:
         pass
-if _use_aiter:
-    try:
-        from aiter import biased_grouped_topk as aiter_biased_grouped_topk
-    except ImportError:
-        raise ImportError("aiter is required when SGLANG_USE_AITER is set to True")
 
 # -------------------------------- TopKConfig ---------------------------------------
 
@@ -754,26 +746,6 @@ def biased_grouped_topk_gpu(
                 topk_ids, expert_location_dispatch_info, num_token_non_padded
             )
         return topk_weights, topk_ids
-    elif _use_aiter:
-        assert not apply_routed_scaling_factor_on_output, "Not implemented"
-        token = gating_output.shape[0]
-        device = gating_output.device
-        assert (
-            hidden_states.shape[0] == gating_output.shape[0]
-        ), f"Number of tokens mismatch: hidden_states.shape[0] = {hidden_states.shape[0]}, gating_output.shape[0] = {gating_output.shape[0]}"
-        topk_weights = torch.empty((token, topk), dtype=torch.float32, device=device)
-        topk_ids = torch.empty((token, topk), dtype=torch.int32, device=device)
-        aiter_biased_grouped_topk(
-            gating_output,
-            correction_bias.to(dtype=gating_output.dtype),
-            topk_weights,
-            topk_ids,
-            num_expert_group,
-            topk_group,
-            renormalize,
-            routed_scaling_factor if routed_scaling_factor is not None else 1.0,
-        )
-        return topk_weights, topk_ids
     else:
         # Use optimized path for Kimi K2 (384 experts with num_expert_group=1)
         num_experts = gating_output.shape[1]
@@ -885,7 +857,7 @@ def select_experts(
             topk_weights, topk_ids = grouped_topk(
                 hidden_states=hidden_states,
                 gating_output=router_logits,
-                topk=num_routed_topk if _use_aiter else top_k,
+                topk=top_k,
                 renormalize=renormalize,
                 num_expert_group=num_expert_group,
                 topk_group=topk_group,
@@ -900,7 +872,7 @@ def select_experts(
                 hidden_states=hidden_states,
                 gating_output=router_logits,
                 correction_bias=correction_bias,
-                topk=num_routed_topk if _use_aiter else top_k,
+                topk=top_k,
                 renormalize=renormalize,
                 num_expert_group=num_expert_group,
                 topk_group=topk_group,
@@ -919,7 +891,7 @@ def select_experts(
         topk_weights, topk_ids = fused_topk_native(
             hidden_states=hidden_states,
             gating_output=router_logits,
-            topk=num_routed_topk if _use_aiter else top_k,
+            topk=top_k,
             renormalize=renormalize,
             correction_bias=correction_bias,
             scoring_func=scoring_func,
@@ -930,7 +902,7 @@ def select_experts(
         topk_weights, topk_ids = fused_topk(
             hidden_states=hidden_states,
             gating_output=router_logits,
-            topk=num_routed_topk if _use_aiter else top_k,
+            topk=top_k,
             renormalize=renormalize,
             correction_bias=correction_bias,
             num_token_non_padded=num_token_non_padded,
@@ -946,29 +918,8 @@ def select_experts(
         topk_weights, topk_ids = custom_routing_function(
             hidden_states=hidden_states,
             gating_output=router_logits,
-            topk=num_routed_topk if _use_aiter else top_k,
+            topk=top_k,
             renormalize=renormalize,
-        )
-
-    if num_fused_shared_experts > 0 and _use_aiter:
-        M, N = router_logits.shape
-        scale_factor = (
-            1.0
-            if fused_shared_experts_scaling_factor is None
-            else fused_shared_experts_scaling_factor
-        )
-
-        # Lazy import to avoid circular-import issues
-        from sglang.srt.layers.moe.fused_moe_triton.fused_moe_triton_kernels import (
-            fused_append_shared_experts,
-        )
-
-        topk_ids, topk_weights = fused_append_shared_experts(
-            topk_ids,
-            topk_weights,
-            num_fused_shared_experts,
-            scale_factor,
-            N,  # base id for shared experts
         )
 
     get_global_expert_distribution_recorder().on_select_experts(topk_ids=topk_ids)

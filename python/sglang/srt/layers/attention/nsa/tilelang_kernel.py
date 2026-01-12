@@ -18,7 +18,6 @@ BF16 = "bfloat16"
 FP8 = "float8_e4m3"
 FP32 = "float32"
 
-_is_hip = is_hip()
 
 
 def fast_log2_ceil(x):
@@ -190,8 +189,6 @@ def fp8_index(
         fp32 logits -> fp32 logits_sum
         fp32 logits_sum * k_s (e8m0) -> fp32 index_score
     """
-    if _is_hip:
-        return fp8_index_kernel(q.shape[2], q.shape[3], False)(q, q_s, k, k_s)
     else:
         return fp8_index_kernel(q.shape[2], q.shape[3])(q, q_s, k, k_s)
 
@@ -774,10 +771,6 @@ def tilelang_sparse_fwd(
     tail_dim = dim - d_v
     topk = indices.shape[-1]
     assert topk == 2048
-    if _is_hip:
-        kernel = sparse_attention_fwd_kernel_v1(
-            num_heads, d_v, tail_dim, topk, sm_scale=sm_scale, num_stages=1
-        )
     else:
         kernel = sparse_attention_fwd_kernel_v2(
             num_heads, d_v, tail_dim, topk, sm_scale=sm_scale

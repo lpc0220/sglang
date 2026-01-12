@@ -46,7 +46,6 @@ from sglang.srt.utils.common import (
     is_cuda,
     is_fa3_default_architecture,
     is_flashinfer_available,
-    is_hip,
     is_hopper_with_cuda_12_3,
     is_no_spec_infer_or_topk_one,
     is_npu,
@@ -128,7 +127,6 @@ ATTENTION_BACKEND_CHOICES = [
     "trtllm_mla",
     "trtllm_mha",
     "dual_chunk_flash_attn",
-    # AMD specific
     "aiter",
     "wave",
     # Other platforms
@@ -694,9 +692,7 @@ class ServerArgs:
         self._handle_sampling_backend()
         self._handle_attention_backend_compatibility()
         self._handle_kv4_compatibility()
-        self._handle_page_size()
-        self._handle_amd_specifics()
-        self._handle_grammar_backend()
+        self._handle_page_size()        self._handle_grammar_backend()
 
         # Handle Hicache settings.
         self._handle_hicache()
@@ -1311,8 +1307,6 @@ class ServerArgs:
                     self.attention_backend, platform = "trtllm_mha", "sm100"
                 elif is_sm90_supported():
                     self.attention_backend, platform = "fa3", "sm90"
-                elif is_hip():
-                    self.attention_backend, platform = "aiter", "hip"
                 elif self.device == "xpu":
                     self.attention_backend, platform = "intel_xpu", "xpu"
                 else:
@@ -1618,8 +1612,6 @@ class ServerArgs:
                     )
                 ):
                     self.attention_backend = "trtllm_mha"
-                elif is_hip():
-                    self.attention_backend = "aiter"
                 else:
                     self.attention_backend = (
                         "flashinfer" if is_flashinfer_available() else "triton"
@@ -1630,13 +1622,6 @@ class ServerArgs:
                     self.attention_backend = "fa3"
                 elif is_sm100_supported():
                     self.attention_backend = "flashinfer"
-                elif is_hip():
-                    head_num = model_config.get_num_kv_heads(self.tp_size)
-                    # TODO current aiter only support head number 16 or 128 head number
-                    if head_num == 128 or head_num == 16:
-                        self.attention_backend = "aiter"
-                    else:
-                        self.attention_backend = "triton"
                 else:
                     self.attention_backend = "triton"
 
@@ -1731,8 +1716,6 @@ class ServerArgs:
                 f"FA4 backend only supports page size 128 for non-MLA model architectures, changing page_size from {self.page_size} to 128."
             )
             self.page_size = 128
-
-        # AMD platforms backends
         if self.attention_backend == "aiter":
             if model_config.context_len > 8192:
                 self.mem_fraction_static *= 0.85
@@ -1868,9 +1851,6 @@ class ServerArgs:
         if self.page_size is None:
             self.page_size = 1
 
-    def _handle_amd_specifics(self):
-        if is_hip():
-            self.triton_attention_num_kv_splits = 16
 
     def _handle_grammar_backend(self):
         if self.grammar_backend is None:
@@ -2449,12 +2429,6 @@ class ServerArgs:
 
             # Check TP size
             if self.tp_size > 1:
-                if is_hip():
-                    # AMD: use 1-stage all-reduce kernel which is inherently deterministic
-                    # (each GPU reads all data from all GPUs, reduces locally in fixed order)
-                    logger.info(
-                        "AMD/ROCm: Using 1-stage all-reduce kernel (deterministic)"
-                    )
                 else:
                     # CUDA: use NCCL tree algorithm
                     os.environ["NCCL_ALGO"] = "allreduce:tree"
@@ -2466,18 +2440,6 @@ class ServerArgs:
     def _handle_dllm_inference(self):
         if self.dllm_algorithm is None:
             return
-        # On AMD/HIP, disable cuda graph for DLLM and use triton backend
-        if is_hip():
-            if not self.disable_cuda_graph:
-                logger.warning(
-                    "Cuda graph is disabled for diffusion LLM inference on AMD GPUs"
-                )
-                self.disable_cuda_graph = True
-            if self.attention_backend not in ["triton", "aiter"]:
-                logger.warning(
-                    "Attention backend is set to triton for diffusion LLM inference on AMD GPUs"
-                )
-                self.attention_backend = "triton"
         elif not self.disable_cuda_graph:
             if self.cuda_graph_bs != [1]:
                 logger.warning(
@@ -3496,7 +3458,6 @@ class ServerArgs:
             "'flashinfer_trtllm' (optimal for Blackwell and low-latency), "
             "'cutlass' (optimal for Hopper/Blackwell GPUs and high-throughput), "
             "'triton' (fallback, widely compatible), "
-            "'aiter' (ROCm only). "
             "NOTE: This replaces the deprecated environment variables "
             "SGLANG_ENABLE_FLASHINFER_FP8_GEMM and SGLANG_SUPPORT_CUTLASS_BLOCK_FP8.",
         )

@@ -18,7 +18,6 @@ from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
     is_cuda,
-    is_hip,
 )
 from sglang.srt.utils.custom_op import register_custom_op
 
@@ -34,22 +33,9 @@ from .moe_align_block_size import moe_align_block_size
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.topk import StandardTopKOutput
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
-if _is_cuda:
-    from sgl_kernel import gelu_and_mul, moe_sum_reduce, silu_and_mul
-elif _is_hip:
-    from sgl_kernel import gelu_and_mul, silu_and_mul
-
-    if _use_aiter:
-        try:
-            from aiter import moe_sum
-        except ImportError:
-            raise ImportError("aiter is required when SGLANG_USE_AITER is set to True")
-    else:
-        from vllm import _custom_ops as vllm_ops
+from sgl_kernel import gelu_and_mul, moe_sum_reduce, silu_and_mul
 
 padding_size = 128 if bool(int(os.getenv("SGLANG_MOE_PADDING", "0"))) else 0
 
@@ -316,7 +302,7 @@ def fused_experts_impl(
     filter_expert: bool = True,
 ):
     padded_size = padding_size
-    if not (use_fp8_w8a8 or use_int8_w8a8) or block_shape is not None or _use_aiter:
+    if not (use_fp8_w8a8 or use_int8_w8a8) or block_shape is not None:
         padded_size = 0
 
     # Check constraints.
@@ -473,7 +459,7 @@ def fused_experts_impl(
                     gemm1_alpha,
                     gemm1_limit,
                 )
-            elif _is_cuda or _is_hip:
+            elif _is_cuda:
                 if not filter_expert:
                     silu_and_mul(intermediate_cache1.view(-1, N), intermediate_cache2)
                 else:
@@ -486,14 +472,10 @@ def fused_experts_impl(
                         down_moe_use_tma,
                         activation,
                     )
-            else:
-                vllm_ops.silu_and_mul(
-                    intermediate_cache2, intermediate_cache1.view(-1, N)
-                )
         elif activation == "gelu" and is_gated:
             assert gemm1_alpha is None, "gemm1_alpha is not supported for gelu"
             assert gemm1_limit is None, "gemm1_limit is not supported for gelu"
-            if _is_cuda or _is_hip:
+            if _is_cuda:
                 if not filter_expert:
                     gelu_and_mul(intermediate_cache1.view(-1, N), intermediate_cache2)
                 else:
@@ -506,10 +488,6 @@ def fused_experts_impl(
                         down_moe_use_tma,
                         activation,
                     )
-            else:
-                vllm_ops.gelu_and_mul(
-                    intermediate_cache2, intermediate_cache1.view(-1, N)
-                )
         # Activation function without multiplication
         elif activation == "silu" and not is_gated:
             intermediate_cache2 = F.silu(intermediate_cache1.view(-1, N))
@@ -580,32 +558,6 @@ def fused_experts_impl(
                         out_hidden_states[begin_chunk_idx:end_chunk_idx],
                         routed_scaling_factor,
                     )
-
-        elif _is_hip:
-            if _use_aiter:
-                moe_sum(
-                    intermediate_cache3.view(*intermediate_cache3.shape),
-                    out_hidden_states[begin_chunk_idx:end_chunk_idx],
-                )
-            else:
-                # According to micro benchmark results, torch.compile can get better performance for small token.
-                if tokens_in_chunk <= 32:
-                    moe_sum_reduce_torch_compile(
-                        intermediate_cache3.view(*intermediate_cache3.shape),
-                        out_hidden_states[begin_chunk_idx:end_chunk_idx],
-                        routed_scaling_factor,
-                    )
-                else:
-                    moe_sum_reduce_triton(
-                        intermediate_cache3.view(*intermediate_cache3.shape),
-                        out_hidden_states[begin_chunk_idx:end_chunk_idx],
-                        routed_scaling_factor,
-                    )
-        else:
-            vllm_ops.moe_sum(
-                intermediate_cache3.view(*intermediate_cache3.shape),
-                out_hidden_states[begin_chunk_idx:end_chunk_idx],
-            )
 
     return out_hidden_states
 

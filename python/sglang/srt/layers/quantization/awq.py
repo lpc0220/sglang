@@ -49,10 +49,9 @@ if TYPE_CHECKING:
         StandardDispatchOutput,
     )
 
-from sglang.srt.utils import is_cuda, is_hip, is_npu, is_xpu
+from sglang.srt.utils import is_cuda, is_npu, is_xpu
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 _is_xpu = is_xpu()
 _is_npu = is_npu()
 
@@ -62,11 +61,6 @@ if _is_npu:
 if _is_cuda:
     from sgl_kernel import awq_dequantize, awq_marlin_moe_repack, awq_marlin_repack
 
-
-elif _is_hip:
-    from sglang.srt.layers.quantization.awq_triton import (
-        awq_dequantize_triton as awq_dequantize,
-    )
 
 elif _is_xpu:
     from sgl_kernel import awq_dequantize
@@ -197,8 +191,6 @@ class AWQMarlinConfig(QuantizationConfig):
         full_config: dict[str, Any],
     ) -> None:
         super().__init__()
-        if _is_hip:
-            warnings.warn(f"HIP does not support fused_marlin_moe currently.")
         self.pack_factor = 32 // weight_bits  # packed into int32
         self.group_size = group_size
         self.zero_point = zero_point

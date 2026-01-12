@@ -105,11 +105,6 @@ class DeepseekModelNextN(nn.Module):
         )
 
         layer_name = "decoder"
-        if _is_npu and (
-            get_global_server_args().speculative_draft_model_path
-            == get_global_server_args().model_path
-        ):
-            layer_name = "layers." + str(config.num_hidden_layers)
 
         self.decoder = DeepseekV2DecoderLayer(
             config,

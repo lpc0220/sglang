@@ -62,7 +62,6 @@ from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
     is_flashinfer_available,
-    is_hip,
     next_power_of_2,
     round_up,
 )
@@ -78,9 +77,6 @@ if get_moe_runner_backend().is_flashinfer_trtllm():
         from flashinfer.fused_moe import trtllm_fp4_block_scale_moe
     except ImportError:
         trtllm_fp4_block_scale_moe = None
-
-_is_hip = is_hip()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 logger = logging.getLogger(__name__)
 
@@ -657,10 +653,6 @@ class FusedMoE(torch.nn.Module):
 
         # Case input scale: input_scale loading is only supported for fp8
         if "input_scale" in weight_name:
-            # INT4-FP8 (INT4 MoE Weight, FP8 Compute): Adjust input_scale for e4m3fnuz (AMD)
-            if _is_hip and get_bool_env_var("SGLANG_INT4_WEIGHT"):
-                loaded_weight = loaded_weight * 2.0
-
             # this is needed for compressed-tensors only
             loaded_weight = loaded_weight.to(param.data.device)
 
@@ -731,10 +723,6 @@ class FusedMoE(torch.nn.Module):
             # specific to each case
             quant_method = getattr(param, "quant_method", None)
             if quant_method == FusedMoeWeightScaleSupported.CHANNEL.value:
-                # INT4-FP8 (INT4 MoE Weight, FP8 Compute): Adjust INT4 column-wise scaling number to e4m3fnuz (AMD)
-                if _is_hip and get_bool_env_var("SGLANG_INT4_WEIGHT"):
-                    loaded_weight = loaded_weight * 0.5
-
                 self._load_per_channel_weight_scale(
                     shard_id=shard_id,
                     shard_dim=shard_dim,
@@ -754,10 +742,6 @@ class FusedMoE(torch.nn.Module):
                     tp_rank=tp_rank,
                 )
             elif quant_method == FusedMoeWeightScaleSupported.TENSOR.value:
-                # INT4-FP8 (INT4 MoE Weight, FP8 Compute): Adjust FP8 per-tensor scaling number for e4m3fnuz (AMD)
-                if _is_hip and get_bool_env_var("SGLANG_INT4_WEIGHT"):
-                    loaded_weight = loaded_weight * 2.0
-
                 self._load_per_tensor_weight_scale(
                     shard_id=shard_id,
                     param=param,
@@ -901,15 +885,6 @@ class FusedMoE(torch.nn.Module):
         dispatch_output = self.dispatcher.dispatch(
             hidden_states=hidden_states, topk_output=topk_output
         )
-        if _use_aiter and self.dispatcher.local_expert_mapping is not None:
-            self.expert_mask_gpu = (
-                (
-                    (self.dispatcher.local_expert_mapping >= 0)
-                    & (self.dispatcher.local_expert_mapping < self.num_local_experts)
-                )
-                .to(torch.int32)
-                .to(device="cuda")
-            )
 
         combine_input = self.run_moe_core(
             dispatch_output=dispatch_output,

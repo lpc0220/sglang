@@ -66,7 +66,6 @@ from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
     is_cuda,
-    is_hip,
     is_npu,
     is_sm90_supported,
     is_sm100_supported,
@@ -81,16 +80,13 @@ if TYPE_CHECKING:
     from sglang.srt.layers.moe.topk import TopKOutput
     from sglang.srt.layers.quantization.w4afp8 import W4AFp8Config
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
 _is_npu = is_npu()
 _is_fp8_fnuz = is_fp8_fnuz()
 _use_hip_int4 = get_bool_env_var("SGLANG_INT4_WEIGHT") and _is_hip
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
-if _use_aiter or _use_hip_int4:
-    from aiter import ActivationType, QuantType
-    from aiter.fused_moe import fused_moe
+if _use_hip_int4:
+        from aiter.fused_moe import fused_moe
     from aiter.ops.shuffle import shuffle_weight
 
 
@@ -689,23 +685,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             layer.register_parameter("w13_weight_scale", w13_weight_scale)
             layer.register_parameter("w2_weight_scale", w2_weight_scale)
 
-            if _is_hip:  # _use_aiter: TODO: add check back after triton kernel
-                # ROCm - using column scaling, duplicate scaling numbers in case per tensor scaling
-                w13_weight_scale1 = torch.nn.Parameter(
-                    torch.ones(
-                        num_experts,
-                        2 * intermediate_size_per_partition,
-                        dtype=torch.float32,
-                    ),
-                    requires_grad=False,
-                )
-                w2_weight_scale1 = torch.nn.Parameter(
-                    torch.ones(num_experts, hidden_size, dtype=torch.float32),
-                    requires_grad=False,
-                )
-                layer.register_parameter("w13_weight_scale1", w13_weight_scale1)
-                layer.register_parameter("w2_weight_scale1", w2_weight_scale1)
-
         # Add the quantization method used (per tensor/grouped/channel)
         # to ensure the weight scales are loaded in properly
         extra_weight_attrs.update(
@@ -858,8 +837,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             layer.w13_weight = torch.nn.Parameter(w13_weight, requires_grad=False)
             layer.w2_weight = torch.nn.Parameter(w2_weight, requires_grad=False)
 
-            if _is_hip:
-                self.process_weights_hip_scale_padding(layer)
             return
 
         # If checkpoint is fp8, we need to handle that the
@@ -940,9 +917,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             layer.w13_weight_scale = torch.nn.Parameter(
                 max_w13_scales, requires_grad=False
             )
-
-            if _is_hip:
-                self.process_weights_hip_scale_padding(layer)
 
             # Align FP8 weights to FlashInfer per-tensor kernel layout if enabled
             if get_moe_runner_backend().is_flashinfer_trtllm():
@@ -1086,17 +1060,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                 True,  # is_vnni
             )
             return StandardCombineInput(hidden_states=output)
-
-        if _is_hip:
-            ret = self.maybe_apply_hip_fused_experts(
-                layer,
-                x,
-                dispatch_output.topk_output,
-                moe_runner_config.activation,
-                moe_runner_config.no_combine,
-            )
-            if ret is not None:
-                return StandardCombineInput(hidden_states=ret)
 
         if get_moe_runner_backend().is_cutlass():
             from sglang.srt.layers.moe.cutlass_moe import cutlass_fused_experts_fp8

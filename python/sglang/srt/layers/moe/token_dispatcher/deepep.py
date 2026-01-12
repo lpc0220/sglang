@@ -28,7 +28,6 @@ from sglang.srt.layers.moe.utils import (
 from sglang.srt.utils import (
     get_bool_env_var,
     is_blackwell,
-    is_hip,
     is_npu,
     load_json_config,
 )
@@ -54,8 +53,6 @@ from enum import Enum, IntEnum, auto
 
 import torch
 import torch.distributed as dist
-
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and is_hip()
 
 logger = logging.getLogger(__name__)
 
@@ -491,7 +488,7 @@ class _DeepEPDispatcherImplNormal(_DeepEPDispatcherImplBase):
         topk_weights: torch.Tensor,
     ):
 
-        if deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM or _use_aiter or _is_npu:
+        if deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM or _is_npu:
             output = hidden_states
         else:
             raise NotImplementedError()  # triton runner was supported but it's temporarily disabled

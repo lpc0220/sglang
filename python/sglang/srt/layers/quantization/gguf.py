@@ -20,7 +20,7 @@ from sglang.srt.layers.quantization.base_config import (
     QuantizeMethodBase,
 )
 from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
-from sglang.srt.utils import is_cuda, is_hip, is_xpu, set_weight_attrs
+from sglang.srt.utils import is_cuda, is_xpu, set_weight_attrs
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher import (
@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     )
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 _is_xpu = is_xpu()
 
 if _is_cuda:
@@ -54,8 +53,6 @@ class GGUFConfig(QuantizationConfig):
 
     def __init__(self, modules_to_not_convert: list[str] | None = None) -> None:
         super().__init__()
-        if _is_hip:
-            warnings.warn(f"Only CUDA support GGUF quantization currently.")
         self.modules_to_not_convert = modules_to_not_convert or []
 
     def __repr__(self) -> str:

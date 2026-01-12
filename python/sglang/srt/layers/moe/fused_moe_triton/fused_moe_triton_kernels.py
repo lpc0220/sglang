@@ -23,7 +23,6 @@ from sglang.srt.utils import (
     get_bool_env_var,
     get_device_name,
     is_cuda,
-    is_hip,
     is_sm90_supported,
 )
 
@@ -34,14 +33,7 @@ try:
 except:
     _support_tensor_descriptor = False
 
-_is_hip = is_hip()
 _is_cuda = is_cuda()
-_use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
-
-if _is_cuda:
-    pass
-elif _is_hip:
-    pass
 
 padding_size = 128 if bool(int(os.getenv("SGLANG_MOE_PADDING", "0"))) else 0
 
@@ -668,10 +660,7 @@ def invoke_fused_moe_kernel(
             # activation block-wise fp8 quantization
             assert len(block_shape) == 2
             block_n, block_k = block_shape[0], block_shape[1]
-            if _is_cuda:
-                A, A_scale = sglang_per_token_group_quant_fp8(A, block_k)
-            else:
-                A, A_scale = per_token_group_quant_fp8(A, block_k)
+            A, A_scale = sglang_per_token_group_quant_fp8(A, block_k)
             assert triton.cdiv(A.shape[-1], block_k) == A_scale.shape[-1]
             assert triton.cdiv(B.shape[-2], block_n) == B_scale.shape[-2]
             assert triton.cdiv(B.shape[-1], block_k) == B_scale.shape[-1]
@@ -687,10 +676,7 @@ def invoke_fused_moe_kernel(
             # activation block-wise int8 quantization
             assert len(block_shape) == 2
             block_n, block_k = block_shape[0], block_shape[1]
-            if _is_cuda:
-                A, A_scale = sglang_per_token_group_quant_int8(A, block_k)
-            else:
-                A, A_scale = per_token_group_quant_int8(A, block_k)
+            A, A_scale = sglang_per_token_group_quant_int8(A, block_k)
             assert triton.cdiv(A.shape[-1], block_k) == A_scale.shape[-1]
             assert triton.cdiv(B.shape[-2], block_n) == B_scale.shape[-2]
             assert triton.cdiv(B.shape[-1], block_k) == B_scale.shape[-1]
