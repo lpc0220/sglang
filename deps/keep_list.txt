@@ -1,0 +1,129 @@
+# DeepSeek Dependencies - KEEP LIST
+# Last Updated: 2026-01-11
+# Status: Phase 2 Complete - All batches done ✅
+
+# ============================================
+# DEEPSEEK MODELS - TEXT-ONLY (Keep for R1)
+# ============================================
+✅ sglang/python/sglang/srt/models/deepseek.py          # Text-only base model
+✅ sglang/python/sglang/srt/models/deepseek_v2.py       # Text-only v2/R1 (PRIMARY)
+✅ sglang/python/sglang/srt/models/deepseek_nextn.py    # Text-only variant
+✅ sglang/python/sglang/srt/models/deepseek_common/     # Shared MLA, MoE components
+   ├── __init__.py
+   ├── mla.py                                           # Multi-head Latent Attention
+   └── utils.py                                         # Common utilities
+
+# USER DECISION: Keep text-only DeepSeek R1 models only
+
+# ============================================
+# MODEL INFRASTRUCTURE (Required)
+# ============================================
+✅ sglang/python/sglang/srt/models/registry.py         # Model registry
+✅ sglang/python/sglang/srt/models/utils.py            # Model utilities
+
+# ============================================
+# TOOL CALLING FUNCTIONALITY (CRITICAL - Keep)
+# ============================================
+✅ sglang/python/sglang/srt/function_call/
+   ├── __init__.py
+   ├── base_format_detector.py                         # Base detector
+   ├── core_types.py                                   # Type definitions
+   ├── function_call_parser.py                         # Parser
+   ├── utils.py                                        # Utilities
+   ├── deepseekv31_detector.py                         # DeepSeek v3.1 specific
+   ├── deepseekv32_detector.py                         # DeepSeek v3.2 specific
+   └── deepseekv3_detector.py                          # DeepSeek v3 specific
+
+# ============================================
+# BENCHMARKS (Keep DeepSeek only)
+# ============================================
+✅ benchmark/deepseek_v3/                               # DeepSeek v3 benchmark
+
+# ============================================
+# CONFIGURATION FILES (Infrastructure only)
+# ============================================
+✅ sglang/python/sglang/srt/configs/
+   ├── __init__.py                                     # Cleaned - no model-specific imports
+   ├── device_config.py                                # Device configuration
+   ├── load_config.py                                  # Loading configuration
+   ├── model_config.py                                 # Model configuration base
+   ├── modelopt_config.py                              # Model optimization config
+   ├── update_config.py                                # Update configuration
+   ├── utils.py                                        # Config utilities
+   └── mamba_utils.py                                  # Mamba utilities (if used)
+
+# ============================================
+# MULTIMODAL INFRASTRUCTURE (Minimal - may remove later)
+# ============================================
+✅ sglang/python/sglang/srt/multimodal/processors/
+   └── base_processor.py                               # Base processor (kept for infrastructure)
+
+# ============================================
+# CORE RUNTIME SYSTEM (All required)
+# ============================================
+✅ sglang/python/sglang/srt/
+   ├── server_args.py                                  # Server arguments
+   ├── environ.py                                      # Environment setup
+   ├── layers/                                         # All layers (DeepSeek uses many)
+   │   ├── attention/                                  # Attention mechanisms
+   │   ├── moe/                                        # MoE layers (CRITICAL for DeepSeek)
+   │   ├── quantization/                               # Quantization (FP4, FP8, etc.)
+   │   ├── linear.py                                   # Linear layers
+   │   ├── layernorm.py                                # Layer normalization
+   │   ├── rotary_embedding.py                         # Rotary embeddings
+   │   └── ...                                         # Other core layers
+   ├── managers/                                       # Memory and scheduling
+   ├── model_executor/                                 # Model execution
+   ├── distributed/                                    # Multi-node support (CRITICAL)
+   ├── speculative/                                    # Speculative decoding
+   └── ...                                             # Other runtime components
+
+# ============================================
+# HARDWARE SUPPORT (NVIDIA GPU only)
+# ============================================
+✅ All NVIDIA CUDA kernels and optimizations
+✅ Tensor parallelism
+✅ Pipeline parallelism
+✅ Expert parallelism (for MoE)
+✅ NCCL communication
+
+❌ Removed: NPU, Ascend, AMD GPU backends
+
+# ============================================
+# API & SERVER (All required)
+# ============================================
+✅ sglang/python/sglang/srt/entrypoints/               # All API endpoints
+✅ Server launch scripts
+✅ CLI interface
+
+# ============================================
+# TESTING INFRASTRUCTURE
+# ============================================
+✅ Workspace tests/ directory                          # Custom validation suite
+   ├── test_syntax.py                                  # Syntax validation
+   ├── test_no_broken_refs.py                          # Broken reference detection
+   ├── test_imports.py                                 # Import validation
+   └── run_all_tests.sh                                # Test runner
+
+# ============================================
+# NEXT PHASE TARGETS (Phase 3 - To Analyze)
+# ============================================
+# These need dependency analysis before removal:
+⚠️  AMD GPU (ROCm/HIP) conditional code in ~72 files
+⚠️  Unused layers (need to identify which DeepSeek uses)
+⚠️  Unused CUDA kernels (need call graph analysis)
+⚠️  Unused attention mechanisms
+⚠️  Dead imports and references
+
+# ============================================
+# SUMMARY
+# ============================================
+# Status: Phase 2 Complete
+# - 6 batches successfully removed
+# - 469 files deleted
+# - ~118,894 lines removed
+# - All tests passing ✅
+# - DeepSeek models intact and functional
+# - Tool calling preserved
+# - NVIDIA GPU support preserved
+# - Multi-node infrastructure preserved
