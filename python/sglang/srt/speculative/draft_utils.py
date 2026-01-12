@@ -44,13 +44,7 @@ class DraftBackendFactory:
             "flashinfer": self._create_flashinfer_decode_backend,
             "triton": self._create_triton_decode_backend,
             "aiter": self._create_aiter_decode_backend,
-            "fa3": self._create_fa3_decode_backend,
-            "hybrid_linear_attn": (
-                self._create_fa3_decode_backend
-                if not is_blackwell()
-                else self._create_triton_decode_backend
-            ),
-            "flashmla": self._create_flashmla_decode_backend,
+            "hybrid_linear_attn": self._create_triton_decode_backend,
             "trtllm_mha": self._create_trtllm_mha_decode_backend,
             "trtllm_mla": self._create_trtllm_mla_decode_backend,
             "nsa": self._create_nsa_decode_backend,
@@ -68,13 +62,7 @@ class DraftBackendFactory:
             "flashinfer": self._create_flashinfer_prefill_backend,
             "triton": self._create_triton_prefill_backend,
             "aiter": self._create_aiter_prefill_backend,
-            "fa3": self._create_fa3_prefill_backend,
-            "hybrid_linear_attn": (
-                self._create_fa3_prefill_backend
-                if not is_blackwell()
-                else self._create_triton_prefill_backend
-            ),
-            "flashmla": self._create_flashmla_prefill_backend,
+            "hybrid_linear_attn": self._create_triton_prefill_backend,
             "trtllm_mha": self._create_trtllm_mha_prefill_backend,
             "trtllm_mla": self._create_trtllm_mla_prefill_backend,
             "nsa": self._create_nsa_prefill_backend,
@@ -139,24 +127,6 @@ class DraftBackendFactory:
             self.draft_model_runner, self.topk, self.speculative_num_steps
         )
 
-    def _create_fa3_decode_backend(self):
-        from sglang.srt.layers.attention.flashattention_backend import (
-            FlashAttentionMultiStepBackend,
-        )
-
-        return FlashAttentionMultiStepBackend(
-            self.draft_model_runner, self.topk, self.speculative_num_steps
-        )
-
-    def _create_flashmla_decode_backend(self):
-        from sglang.srt.layers.attention.flashmla_backend import (
-            FlashMLAMultiStepDraftBackend,
-        )
-
-        return FlashMLAMultiStepDraftBackend(
-            self.draft_model_runner, self.topk, self.speculative_num_steps
-        )
-
     def _create_trtllm_mha_decode_backend(self):
         from sglang.srt.layers.attention.trtllm_mha_backend import (
             TRTLLMHAAttnMultiStepDraftBackend,
@@ -213,13 +183,6 @@ class DraftBackendFactory:
 
         return AiterAttnBackend(self.draft_model_runner, skip_prefill=False)
 
-    def _create_fa3_prefill_backend(self):
-        from sglang.srt.layers.attention.flashattention_backend import (
-            FlashAttentionBackend,
-        )
-
-        return FlashAttentionBackend(self.draft_model_runner, skip_prefill=False)
-
     def _create_trtllm_mha_prefill_backend(self):
         from sglang.srt.layers.attention.trtllm_mha_backend import TRTLLMHAAttnBackend
 
@@ -241,9 +204,3 @@ class DraftBackendFactory:
         )
 
         return AscendAttnBackend(self.draft_model_runner)
-
-    def _create_flashmla_prefill_backend(self):
-        logger.warning(
-            "flashmla prefill backend is not yet supported for draft extend."
-        )
-        return None

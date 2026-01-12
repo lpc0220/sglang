@@ -35,7 +35,11 @@ if TYPE_CHECKING:
     )
 
 
+_use_aiter = False
 
+
+class UnquantizedLinearMethod(LinearMethodBase):
+    """Linear method without quantization."""
 
     def apply(
         self,
@@ -132,18 +136,6 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, MultiPlatformOp):
             set_weight_attrs(w2_weight_bias, extra_weight_attrs)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
-        if _use_aiter:
-            layer.w13_weight = torch.nn.Parameter(
-                shuffle_weight(layer.w13_weight.data, (16, 16)),
-                requires_grad=False,
-            )
-            torch.cuda.empty_cache()
-            layer.w2_weight = torch.nn.Parameter(
-                shuffle_weight(layer.w2_weight.data, (16, 16)),
-                requires_grad=False,
-            )
-            torch.cuda.empty_cache()
-
         # Reorder rows of W1 for fused gated activation
         if self.use_flashinfer_trtllm_moe:
             from flashinfer.fused_moe.core import (
@@ -279,43 +271,13 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, MultiPlatformOp):
             )[0]
             return StandardCombineInput(hidden_states=output)
         else:
-            if _use_aiter:
-                assert not moe_runner_config.no_combine, "unsupported"
-                topk_weights, topk_ids, _ = topk_output
-                if moe_runner_config.apply_router_weight_on_input:
-                    assert (
-                        topk_weights.dim() == 2
-                    ), "`topk_weights` should be in shape (num_tokens, topk)"
-                    _, topk = topk_weights.shape
-                    assert (
-                        topk == 1
-                    ), "Only support topk=1 when `apply_router_weight_on_input` is True"
-                    x = x * topk_weights.to(x.dtype)
-                    topk_weights = torch.ones_like(
-                        topk_weights, dtype=torch.float32
-                    )  # topk_weights must be FP32 (float32)
-                output = fused_moe(
-                    x,
-                    layer.w13_weight,
-                    layer.w2_weight,
-                    topk_weights,
-                    topk_ids,
-                    activation=(
-                        ActivationType.Silu
-                        if moe_runner_config.activation == "silu"
-                        else ActivationType.Gelu
-                    ),
-                    expert_mask=layer.expert_mask_gpu,
-                )
-                return StandardCombineInput(hidden_states=output)
-            else:
-                quant_info = TritonMoeQuantInfo(
-                    w13_weight=layer.w13_weight,
-                    w2_weight=layer.w2_weight,
-                    b13=getattr(layer, "w13_weight_bias", None),
-                    b2=getattr(layer, "w2_weight_bias", None),
-                )
-                return self.runner.run(dispatch_output, quant_info)
+            quant_info = TritonMoeQuantInfo(
+                w13_weight=layer.w13_weight,
+                w2_weight=layer.w2_weight,
+                b13=getattr(layer, "w13_weight_bias", None),
+                b2=getattr(layer, "w2_weight_bias", None),
+            )
+            return self.runner.run(dispatch_output, quant_info)
 
     def forward_cpu(
         self,

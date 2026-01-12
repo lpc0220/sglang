@@ -316,7 +316,7 @@ class FlashAttentionBackend(AttentionBackend):
         speculative_step_id=0,
         topk=0,
         speculative_num_steps=0,
-        fa_impl_ver=3,
+        fa_impl_ver=2,
     ):
         super().__init__()
 
@@ -760,12 +760,10 @@ class FlashAttentionBackend(AttentionBackend):
         k_descale, v_descale = None, None
         # only use kv scaling if: 1) fp8 kv is explicitly enabled, 2) RadixAttention
         # has corresponding quantization method so that layer.k_scale is not None,
-        # 3) layer.head_dim <= 256 since fa3 kernel require fp16 and bf16 data type in this case,
-        # 4) fa_impl_ver != 4 since fa4 does not currently support fp8 queries and keys.
+        # 3) layer.head_dim <= 256 since fa2 kernel require fp16 and bf16 data type in this case.
         if (
             self.kv_cache_dtype_str != "auto"
             and layer.head_dim <= 256
-            and self.fa_impl_ver != 4
         ):
             if layer.k_scale is not None:
                 descale_shape = (forward_batch.batch_size, layer.tp_k_head_num)
@@ -796,10 +794,8 @@ class FlashAttentionBackend(AttentionBackend):
             and not is_swa_layer
         )
 
-        # For fa3 interface version compatibility, we put new fields into conditional keyword args
+        # Prepare keyword args
         kwargs = {}
-        if self.fa_impl_ver != 3:
-            kwargs["ver"] = self.fa_impl_ver
         if sinks is not None:
             kwargs["sinks"] = sinks
 
@@ -965,7 +961,6 @@ class FlashAttentionBackend(AttentionBackend):
                     return output, lse
                 return output
             else:
-                assert self.fa_impl_ver in [3], "Only FA3 support here"
                 # Do absorbed multi-latent attention
                 kv_cache = forward_batch.token_to_kv_pool.get_key_buffer(
                     layer.layer_id
@@ -1056,7 +1051,6 @@ class FlashAttentionBackend(AttentionBackend):
         k_rope: Optional[torch.Tensor] = None,
         sinks: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        assert self.fa_impl_ver in [3], "Only FA3 support decoding"
         if k is not None:
             assert v is not None
             if save_kv_cache:
@@ -1104,10 +1098,8 @@ class FlashAttentionBackend(AttentionBackend):
         if layer.is_cross_attention or layer.attn_type == AttentionType.ENCODER_ONLY:
             causal = False
 
-        # For fa3 interface version compatibility, we put new fields into conditional keyword args
+        # Prepare keyword args
         kwargs = {}
-        if self.fa_impl_ver != 3:
-            kwargs["ver"] = self.fa_impl_ver
         if sinks is not None:
             kwargs["sinks"] = sinks
 

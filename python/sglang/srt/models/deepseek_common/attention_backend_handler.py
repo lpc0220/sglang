@@ -31,7 +31,7 @@ def _get_sum_extend_prefix_lens(forward_batch):
 
 
 def _support_mha_one_shot(attn, forward_batch, backend_name):
-    attn_supported = backend_name in ["fa3", "flashinfer", "flashmla"]
+    attn_supported = backend_name in ["flashinfer"]
     sum_seq_lens = (
         sum(forward_batch.seq_lens_cpu) if forward_batch.seq_lens_cpu is not None else 0
     )
@@ -44,7 +44,7 @@ def _handle_attention_backend(attn, forward_batch, backend_name):
 
     sum_extend_prefix_lens = _get_sum_extend_prefix_lens(forward_batch)
     disable_ragged = (
-        backend_name in ["flashinfer", "flashmla"]
+        backend_name in ["flashinfer"]
     ) and attn.flashinfer_mla_disable_ragged
 
     if (
@@ -69,25 +69,8 @@ def handle_attention_flashinfer(attn, forward_batch):
     return _handle_attention_backend(attn, forward_batch, "flashinfer")
 
 
-def handle_attention_fa3(attn, forward_batch):
-    # when deterministic inference is enabled, use MLA
-    if get_global_server_args().enable_deterministic_inference:
-        return _dispatch_mla_subtype(attn, forward_batch)
-    else:
-        return _handle_attention_backend(attn, forward_batch, "fa3")
-
-
-def handle_attention_flashmla(attn, forward_batch):
-    return _handle_attention_backend(attn, forward_batch, "flashmla")
-
-
 def handle_attention_cutlass_mla(attn, forward_batch):
     return _handle_attention_backend(attn, forward_batch, "cutlass_mla")
-
-
-def handle_attention_fa4(attn, forward_batch):
-    # TODO(cicirori): use FA4 MHA for DeepSeekV3 for now
-    return AttnForwardMethod.MHA_CHUNKED_KV
 
 
 def handle_attention_trtllm_mla(attn, forward_batch):
@@ -142,10 +125,7 @@ def handle_attention_triton(attn, forward_batch):
 
 
 AttentionBackendRegistry.register("flashinfer", handle_attention_flashinfer)
-AttentionBackendRegistry.register("fa3", handle_attention_fa3)
-AttentionBackendRegistry.register("flashmla", handle_attention_flashmla)
 AttentionBackendRegistry.register("cutlass_mla", handle_attention_cutlass_mla)
-AttentionBackendRegistry.register("fa4", handle_attention_fa4)
 AttentionBackendRegistry.register("trtllm_mla", handle_attention_trtllm_mla)
 AttentionBackendRegistry.register("aiter", handle_attention_aiter)
 AttentionBackendRegistry.register("nsa", handle_attention_nsa)

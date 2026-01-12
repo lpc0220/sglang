@@ -262,7 +262,18 @@ def get_float_env_var(name: str, default: float = 0.0) -> float:
 
 
 def support_triton(backend: str) -> bool:
-    return backend not in ["torch_native", "intel_amx"]
+    return backend not in ["torch_native"]
+
+
+# Stub functions for removed Intel AMX backend (NVIDIA GPU only)
+def cpu_has_amx_support() -> bool:
+    """Stub function - Intel AMX not supported (NVIDIA GPU only)."""
+    return False
+
+
+def use_intel_amx_backend(module) -> bool:
+    """Stub function - Intel AMX not supported (NVIDIA GPU only)."""
+    return getattr(module, 'use_intel_amx_backend', False)
 
 
 _ENABLE_TORCH_INFERENCE_MODE = get_bool_env_var(
@@ -2785,65 +2796,14 @@ def read_system_prompt_from_file(model_name: str) -> str:
 
 
 def prepack_weight_if_needed(weight):
-    if weight.device != torch.device("cpu"):
-        return weight
-    if not cpu_has_amx_support():
-        return weight
-
-    return torch.ops.sgl_kernel.convert_weight_packed(weight)
-
-
-# TODO: currently gemm kernel has the below requirements:
-# OC % TILE_N == 0, where TILE_N = 16
-# IC % TILE_K == 0, where TILE_K = 32
-def dim_is_supported(weight):
-    return weight.size(0) % 16 == 0 and weight.size(1) % 32 == 0
+    # Intel AMX removed - NVIDIA GPU only
+    return weight
 
 
 def _process_weight_after_loading(module, weight_names, transpose_dims=None) -> None:
-    # Pack weight for get better performance on CPU
-    devices = {getattr(module, weight_name).device for weight_name in weight_names}
-    assert len(devices) == 1, f"Expects all weights to be on the same device"
-    device = devices.pop()
-
-    if transpose_dims:
-        assert len(weight_names) == len(
-            transpose_dims
-        ), "len(weight_names) should be equal to len(transpose_dims)"
-
-    for i, weight_name in enumerate(weight_names):
-        weight_tensor = getattr(module, weight_name)
-
-        # We don't pack weight or use intel amx backend if any weight of this module has unsupported dim.
-        if not dim_is_supported(weight_tensor):
-            logger.warning(
-                f"Expects weight.size(0) % 16 == 0 and weight.size(1) % 32 == 0 "
-                f"but {weight_tensor.size(0)=} and {weight_tensor.size(1)=} in {module}. "
-                f"{module} won't use intel amx backend."
-            )
-            module.use_intel_amx_backend = False
-            return
-
-        if transpose_dims and transpose_dims[i]:
-            weight_tensor = weight_tensor.transpose(*transpose_dims[i])
-
-        packed_weight = torch.nn.Parameter(
-            prepack_weight_if_needed(weight_tensor),
-            requires_grad=False,
-        )
-        packed_weight.__dict__ = weight_tensor.__dict__
-        setattr(module, weight_name, packed_weight)
-
-    module.use_intel_amx_backend = (
-        device == torch.device("cpu") and cpu_has_amx_support()
-    )
-
-    if (
-        module.use_intel_amx_backend
-        and hasattr(module, "bias")
-        and module.bias is not None
-    ):
-        module.bias = torch.nn.Parameter(module.bias.data.float(), requires_grad=False)
+    # Intel AMX backend removed - NVIDIA GPU only
+    # This function is now a no-op stub for compatibility
+    module.use_intel_amx_backend = False
 
 
 class PackWeightMethod:
@@ -3027,8 +2987,9 @@ def get_cpu_ids_by_node():
 
 
 def is_shm_available(dtype, world_size, local_size):
+    # Intel AMX removed - only ARM64 CPU supported
     return (
-        (cpu_has_amx_support() or is_host_cpu_arm64())
+        is_host_cpu_arm64()
         and dtype in [torch.bfloat16, torch.float16, torch.float]
         and world_size >= 1
         and world_size == local_size

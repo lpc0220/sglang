@@ -82,10 +82,7 @@ if TYPE_CHECKING:
 _is_cuda = is_cuda()
 _is_fp8_fnuz = is_fp8_fnuz()
 _use_hip_int4 = False
-
-if _use_hip_int4:
-        from aiter.fused_moe import fused_moe
-    from aiter.ops.shuffle import shuffle_weight
+_use_aiter = False
 
 
 ACTIVATION_SCHEMES = ["static", "dynamic"]
@@ -759,23 +756,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                     w2_weight_scale, requires_grad=False
                 )
                 layer.w2_input_scale = None
-                if _use_aiter:
-                    # add this section for MI300
-                    # Pre-shuffle weights
-                    layer.w13_weight.data = shuffle_weight(
-                        layer.w13_weight.contiguous(), (16, 16)
-                    )
-                    layer.w2_weight.data = shuffle_weight(
-                        layer.w2_weight.contiguous(), (16, 16)
-                    )
-            elif _use_aiter:
-                # Pre-shuffle weights
-                layer.w13_weight.data = shuffle_weight(
-                    layer.w13_weight.contiguous(), (16, 16)
-                )
-                layer.w2_weight.data = shuffle_weight(
-                    layer.w2_weight.contiguous(), (16, 16)
-                )
             else:
                 # For fp8 moe run with deepgemm, the expert weights and scales need be requantized to ue8m0
                 from sglang.srt.layers.moe.ep_moe.layer import DeepEPMoE
@@ -973,22 +953,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             padding_size,  # Avoid circular import
         )
 
-        if _use_aiter:
-            layer.w13_weight = torch.nn.Parameter(
-                shuffle_weight(layer.w13_weight.data, (16, 16)),
-                requires_grad=False,
-            )
-            torch.cuda.empty_cache()
-            layer.w2_weight = torch.nn.Parameter(
-                shuffle_weight(layer.w2_weight.data, (16, 16)),
-                requires_grad=False,
-            )
-            torch.cuda.empty_cache()
-
-            # ROCm (_use_aiter): using column-wise scaling
-            layer.w13_weight_scale1 *= layer.w13_weight_scale.unsqueeze(-1)
-            layer.w2_weight_scale1 *= layer.w2_weight_scale.unsqueeze(-1)
-        elif get_bool_env_var("SGLANG_MOE_PADDING"):
+        if get_bool_env_var("SGLANG_MOE_PADDING"):
             # If ROCm, apply weight padding (min. Mem channel contention) only if set
             layer.w13_weight = torch.nn.Parameter(
                 F.pad(layer.w13_weight.data, (0, padding_size), "constant", 0),
@@ -1273,42 +1238,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                 ),
             )
 
-        if _use_aiter:
-            assert not no_combine, f"{no_combine=} is not supported."
-            if self.block_quant:
-                return fused_moe(
-                    x,
-                    layer.w13_weight,
-                    layer.w2_weight,
-                    topk_weights,
-                    topk_ids,
-                    w1_scale=layer.w13_weight_scale_inv,
-                    w2_scale=layer.w2_weight_scale_inv,
-                    quant_type=QuantType.per_128x128,
-                    activation=(
-                        ActivationType.Silu
-                        if activation == "silu"
-                        else ActivationType.Gelu
-                    ),
-                    expert_mask=layer.expert_mask_gpu,
-                )
-            else:
-                return fused_moe(
-                    x,
-                    layer.w13_weight,
-                    layer.w2_weight,
-                    topk_weights,
-                    topk_ids,
-                    quant_type=QuantType.per_Token,
-                    w1_scale=layer.w13_weight_scale1,
-                    w2_scale=layer.w2_weight_scale1,
-                    activation=(
-                        ActivationType.Silu
-                        if activation == "silu"
-                        else ActivationType.Gelu
-                    ),
-                    expert_mask=layer.expert_mask_gpu,
-                )
         return None
 
 

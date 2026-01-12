@@ -54,27 +54,7 @@ def create_trtllm_mla_backend(runner):
     return TRTLLMMLABackend(runner)
 
 
-@register_attention_backend("aiter")
-def create_aiter_backend(runner):
-    from sglang.srt.layers.attention.aiter_backend import AiterAttnBackend
-
-    return AiterAttnBackend(runner)
-
-
-@register_attention_backend("wave")
-def create_wave_backend(runner):
-    from sglang.srt.layers.attention.wave_backend import WaveAttnBackend
-
-    return WaveAttnBackend(runner)
-
-
-@register_attention_backend("ascend")
-def create_ascend_backend(runner):
-    from sglang.srt.hardware_backend.npu.attention.ascend_backend import (
-        AscendAttnBackend,
-    )
-
-    return AscendAttnBackend(runner)
+# Removed wave and ascend backends - NVIDIA GPU only
 
 
 @register_attention_backend("nsa")
@@ -116,35 +96,6 @@ def create_flex_attention_backend(runner):
     return TorchFlexAttnBackend(runner)
 
 
-@register_attention_backend("flashmla")
-def create_flashmla_backend(runner):
-    from sglang.srt.layers.attention.flashmla_backend import FlashMLABackend
-
-    return FlashMLABackend(runner)
-
-
-@register_attention_backend("fa3")
-def create_flashattention_v3_backend(runner):
-    import torch
-
-    assert (
-        torch.cuda.get_device_capability()[0] == 8 and not runner.use_mla_backend
-    ) or torch.cuda.get_device_capability()[0] == 9, (
-        "FlashAttention v3 Backend requires SM>=80 and SM<=90. "
-        "Please use `--attention-backend flashinfer`."
-    )
-    from sglang.srt.layers.attention.flashattention_backend import FlashAttentionBackend
-
-    return FlashAttentionBackend(runner)
-
-
-@register_attention_backend("fa4")
-def create_flashattention_v4_backend(runner):
-    from sglang.srt.layers.attention.flashattention_backend import FlashAttentionBackend
-
-    return FlashAttentionBackend(runner, fa_impl_ver=4)
-
-
 @register_attention_backend("cutlass_mla")
 def create_cutlass_mla_backend(runner):
     from sglang.srt.layers.attention.cutlass_mla_backend import CutlassMLABackend
@@ -161,13 +112,7 @@ def create_trtllm_mha_backend(runner):
     return TRTLLMHAAttnBackend(runner)
 
 
-@register_attention_backend("dual_chunk_flash_attn")
-def create_dual_chunk_flash_attn_backend(runner):
-    from sglang.srt.layers.attention.dual_chunk_flashattention_backend import (
-        DualChunkFlashAttentionBackend,
-    )
-
-    return DualChunkFlashAttentionBackend(runner)
+# Removed dual_chunk_flash_attn backend - NVIDIA GPU only
 
 
 def attn_backend_wrapper(runner: "ModelRunner", full_attn_backend: "AttentionBackend"):

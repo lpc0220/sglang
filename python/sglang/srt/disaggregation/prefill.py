@@ -49,7 +49,7 @@ from sglang.srt.managers.schedule_batch import (
     ScheduleBatch,
 )
 from sglang.srt.mem_cache.common import release_kv_cache
-from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool, NSATokenToKVPool
+from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool
 from sglang.srt.mem_cache.swa_memory_pool import SWAKVPool
 from sglang.srt.tracing.trace import trace_event_batch, trace_slice, trace_slice_end
 
@@ -161,8 +161,6 @@ class PrefillBootstrapQueue:
                 kv_args.state_type = "swa"
             elif isinstance(self.token_to_kv_pool, HybridLinearKVPool):
                 kv_args.state_type = "mamba"
-            elif isinstance(self.token_to_kv_pool, NSATokenToKVPool):
-                kv_args.state_type = "nsa"
             else:
                 kv_args.state_type = "none"
         else:
@@ -712,7 +710,7 @@ class SchedulerDisaggregationPrefillMixin:
                 state_indices = window_kv_indices_swa.cpu().numpy()
                 state_indices = kv_to_page_indices(state_indices, page_size)
             elif isinstance(
-                self.token_to_kv_pool_allocator.get_kvcache(), NSATokenToKVPool
+                self.token_to_kv_pool_allocator.get_kvcache(), type(None)
             ):
                 seq_len = len(req.fill_ids)
                 kv_indices_full = self.req_to_token_pool.req_to_token[

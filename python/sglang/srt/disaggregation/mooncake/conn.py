@@ -651,7 +651,7 @@ class MooncakeKVManager(CommonKVManager):
                 prefill_state_indices,
                 dst_state_data_ptrs,
             )
-        elif state_type in ["swa", "nsa"]:
+        elif state_type == "swa":
             # Reuse _send_kvcache_generic interface to send extra pool data
             prefill_state_indices = np.array(prefill_state_indices, dtype=np.int32)
             dst_state_indices = np.array(req.dst_state_indices, dtype=np.int32)

@@ -39,7 +39,6 @@ from sglang.srt.utils.common import (
     LORA_TARGET_ALL_MODULES,
     SUPPORTED_LORA_TARGET_MODULES,
     configure_ipv6,
-    cpu_has_amx_support,
     get_bool_env_var,
     get_device,
     get_device_memory_capacity,
@@ -47,7 +46,6 @@ from sglang.srt.utils.common import (
     get_device_sm,
     is_blackwell_supported,
     is_cuda,
-    is_fa3_default_architecture,
     is_flashinfer_available,
     is_hopper_with_cuda_12_3,
     is_no_spec_infer_or_topk_one,
@@ -61,15 +59,14 @@ from sglang.srt.utils.common import (
     json_list_type,
     nullable_str,
     parse_connector_type,
-    wait_port_available,
-    xpu_has_xmx_support)
+    wait_port_available)
 from sglang.srt.utils.hf_transformers_utils import check_gguf_file
 from sglang.utils import is_in_ci
 
 logger = logging.getLogger(__name__)
 
 # Define constants
-SAMPLING_BACKEND_CHOICES = {"flashinfer", "pytorch", "ascend"}
+SAMPLING_BACKEND_CHOICES = {"flashinfer", "pytorch"}
 LOAD_FORMAT_CHOICES = [
     "auto",
     "pt",
@@ -118,48 +115,26 @@ ATTENTION_BACKEND_CHOICES = [
     "triton",
     "torch_native",
     "flex_attention",
-    "nsa",
     # NVIDIA specific
     "cutlass_mla",
-    "fa3",
-    "fa4",
     "flashinfer",
-    "flashmla",
     "trtllm_mla",
     "trtllm_mha",
-    "dual_chunk_flash_attn",
-    "aiter",
-    "wave",
-    # Other platforms
-    "intel_amx",
-    "ascend",
-    "intel_xpu",
 ]
 
-LORA_BACKEND_CHOICES = ["triton", "csgmv", "ascend", "torch_native"]
+LORA_BACKEND_CHOICES = ["triton", "csgmv", "torch_native"]
 
-DISAGG_TRANSFER_BACKEND_CHOICES = ["mooncake", "nixl", "ascend", "fake"]
+DISAGG_TRANSFER_BACKEND_CHOICES = ["mooncake", "nixl", "fake"]
 
 ENCODER_TRANSFER_BACKEND_CHOICES = ["zmq_to_scheduler", "zmq_to_tokenizer", "mooncake"]
 
 GRAMMAR_BACKEND_CHOICES = ["xgrammar", "outlines", "llguidance", "none"]
 
-DETERMINISTIC_ATTENTION_BACKEND_CHOICES = ["flashinfer", "fa3", "triton"]
+DETERMINISTIC_ATTENTION_BACKEND_CHOICES = ["flashinfer", "triton"]
 
-RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND = ["fa3", "triton"]
-
-NSA_PREFILL_CP_SPLIT_CHOICES = ["in-seq-split", "round-robin-split"]
+RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND = ["triton"]
 
 DEFAULT_LORA_EVICTION_POLICY = "lru"
-
-NSA_CHOICES = [
-    "flashmla_sparse",
-    "flashmla_kv",
-    "flashmla_auto",
-    "fa3",
-    "tilelang",
-    "aiter",
-]
 
 RADIX_EVICTION_POLICY_CHOICES = ["lru", "lfu"]
 
@@ -177,7 +152,7 @@ MOE_RUNNER_BACKEND_CHOICES = [
     "cutlass",
 ]
 
-MOE_A2A_BACKEND_CHOICES = ["none", "deepep", "mooncake", "ascend_fuseep"]
+MOE_A2A_BACKEND_CHOICES = ["none", "deepep", "mooncake"]
 
 FP8_GEMM_RUNNER_BACKEND_CHOICES = [
     "auto",
@@ -185,7 +160,6 @@ FP8_GEMM_RUNNER_BACKEND_CHOICES = [
     "flashinfer_trtllm",
     "cutlass",
     "triton",
-    "aiter",
 ]
 
 MAMBA_SSM_DTYPE_CHOICES = ["float32", "bfloat16"]
@@ -414,8 +388,6 @@ class ServerArgs:
     grammar_backend: Optional[str] = None
     mm_attention_backend: Optional[str] = None
     fp8_gemm_runner_backend: str = "auto"
-    nsa_prefill_backend: str = "flashmla_sparse"
-    nsa_decode_backend: str = "fa3"
     disable_flashinfer_autotune: bool = False
 
     # Speculative decoding
@@ -447,7 +419,7 @@ class ServerArgs:
 
     # Expert parallelism
     ep_size: int = 1
-    moe_a2a_backend: Literal["none", "deepep", "mooncake", "ascend_fuseep"] = "none"
+    moe_a2a_backend: Literal["none", "deepep", "mooncake"] = "none"
     moe_runner_backend: str = "auto"
     flashinfer_mxfp4_moe_precision: Literal["default", "bf16"] = "default"
     enable_flashinfer_allreduce_fusion: bool = False
@@ -584,9 +556,6 @@ class ServerArgs:
     enable_deterministic_inference: bool = False
     rl_on_policy_target: Optional[str] = None
     enable_attn_tp_input_scattered: bool = False
-    # Context parallelism used in the long sequence prefill phase of DeepSeek v3.2
-    enable_nsa_prefill_context_parallel: bool = False
-    nsa_prefill_cp_mode: str = "in-seq-split"
     enable_fused_qk_norm_rope: bool = False
     enable_precise_embedding_interpolation: bool = False
 
@@ -829,28 +798,16 @@ class ServerArgs:
             self.speculative_draft_model_quantization = None
 
     def _handle_hpu_backends(self):
-        if self.device == "hpu":
-            self.attention_backend = "torch_native"
-            self.sampling_backend = "pytorch"
+        # HPU (Habana) support removed - NVIDIA GPU only
+        pass
 
     def _handle_cpu_backends(self):
-        if self.device == "cpu":
-            if self.attention_backend is None:
-                self.attention_backend = "intel_amx"
-            self.sampling_backend = "pytorch"
+        # CPU backend support removed - NVIDIA GPU only
+        pass
 
     def _handle_npu_backends(self):
-        if self.device == "npu":
-            from sglang.srt.hardware_backend.npu.utils import set_default_server_args
-
-            set_default_server_args(self)
-
-            if self.piecewise_cuda_graph_compiler != "eager":
-                logger.warning(
-                    "At this moment Ascend platform only support prefill graph compilation with "
-                    "piecewise_cuda_graph_compiler='eager', change piecewise_cuda_graph_compiler to 'eager'."
-                )
-                self.piecewise_cuda_graph_compiler = "eager"
+        # NPU (Ascend) support removed - NVIDIA GPU only
+        pass
 
     def _handle_gpu_memory_settings(self, gpu_mem):
         """
@@ -1083,84 +1040,12 @@ class ServerArgs:
             "PixtralForConditionalGeneration",
         ]:
             # Set attention backend for DeepSeek
-            if is_deepseek_nsa(hf_config):  # DeepSeek 3.2
-                if self.is_attention_backend_not_set():
-                    self.attention_backend = "nsa"
-                    logger.info("Use nsa attention backend for DeepSeek with DSA.")
-
-                if self.enable_nsa_prefill_context_parallel:
-                    logger.warning(
-                        f"Context parallel feature is still under experiment. It has only been verified on Hopper platform."
-                    )
-                    if self.nsa_prefill_cp_mode == "in-seq-split":
-                        # TODO Supports moe_dense_tp_size != 1, kv cache dtype = "fp8",moe_a2a_backend non-deepep and cross-machine operation .
-                        self.enable_dp_attention = True
-                        self.moe_dense_tp_size = 1
-                        self.moe_a2a_backend = "deepep"
-                        self.ep_size = self.tp_size
-                        self.kv_cache_dtype = "bf16"
-                        logger.warning(
-                            f"For in-seq split mode, we have the following restrictions: moe_dense_tp_size == 1, moe_a2a_backend == deepep, ep_size == tp_size, kv_cache_dtype == bf16, batch_size == 1"
-                        )
-                    else:
-                        self.enable_dp_attention = True
-                        self.moe_dense_tp_size = 1
-                        assert (
-                            self.dp_size == 1
-                        ), "For round-robin split mode, dp attention is not supported."
-                    assert (
-                        self.tp_size == 8
-                    ), "Current multi-machine CP support suffers from precision issues. So context parallel only support Single machine(tp_size == 8)"
-
-                    logger.warning(
-                        f"Enable Context Parallel opt for deeeseekv3.2-DSA, Setting dp_size == {self.dp_size} and moe_dense_tp_size == {self.moe_dense_tp_size}, ep_size == {self.ep_size}, tp_size == {self.tp_size}, kv_cache_dtype == {self.kv_cache_dtype}, moe_a2a_backend {self.moe_a2a_backend} "
-                    )
-                else:
-                    # Pure TP and partial DP Attention mode is active for NSA, logging a warning
-                    if self.dp_size < self.tp_size:
-                        logger.warning(
-                            f"DSA with TP mode is active, dp_size={self.dp_size}, tp_size={self.tp_size}, "
-                            f"attn_tp_size={self.tp_size}, attention weights will be sharded across {self.tp_size} ranks."
-                        )
-
-                self.page_size = 64
-                logger.warning("Setting page size to 64 for DeepSeek DSA.")
-
-                # For Hopper, we support both bf16 and fp8 kv cache; for Blackwell, we support fp8 only currently
-                import torch
-
-                major, _ = torch.cuda.get_device_capability()
-                if self.kv_cache_dtype == "auto":
-                    self.kv_cache_dtype = "fp8_e4m3" if major >= 10 else "bfloat16"
-                    logger.warning(
-                        f"Setting KV cache dtype to {self.kv_cache_dtype} for DeepSeek DSA on SM{major} device."
-                    )
-                if self.kv_cache_dtype == "bf16":
-                    self.kv_cache_dtype = "bfloat16"
-                assert self.kv_cache_dtype in [
-                    "bfloat16",
-                    "fp8_e4m3",
-                ], "DeepSeek DSA only supports bf16/bfloat16 or fp8_e4m3 kv_cache_dtype"
-
-                if self.kv_cache_dtype == "fp8_e4m3":
-                    # flashmla_auto dispatches to flashmla_sparse/flashmla_kv based on hardware and heuristics
-                    self.nsa_prefill_backend = "flashmla_auto"
-                    self.nsa_decode_backend = "flashmla_kv"
-                    logger.warning(
-                        "Setting DSA backend to flashmla_auto for prefill and flashmla_kv for decode for FP8 KV Cache."
-                    )
-                else:
-                    # set prefill/decode backends to flashmla_sparse for Blackwell.
-                    # The default settings (P=flashmla_sparse, D=fa3) are for Hopper.
-                    if major >= 10:
-                        self.nsa_prefill_backend = "flashmla_sparse"
-                        self.nsa_decode_backend = "flashmla_sparse"
-
-                if self.enable_nsa_prefill_context_parallel:
-                    assert (
-                        self.disaggregation_mode != "decode"
-                    ), "CP is only supported for prefill when PD disaggregation, please remove --enable-nsa-prefill-context-parallel."
-
+            if is_deepseek_nsa(hf_config):  # DeepSeek 3.2 with DSA
+                # DeepSeek 3.2 with DSA is not supported in this NVIDIA-only build
+                logger.warning(
+                    "DeepSeek 3.2 with DSA (Native Sparse Attention) is not supported. "
+                    "Please use DeepSeek V3/R1/V3.1 instead."
+                )
             else:
                 # DeepSeek V3/R1/V3.1
                 if self.enable_piecewise_cuda_graph:
@@ -1233,11 +1118,11 @@ class ServerArgs:
                 if is_sm100_supported():
                     self.attention_backend = "trtllm_mha"
                 elif is_sm90_supported():
-                    self.attention_backend = "fa3"
+                    self.attention_backend = "triton"
                 else:
                     self.attention_backend = "triton"
 
-            supported_backends = ["triton", "trtllm_mha", "fa3", "fa4"]
+            supported_backends = ["triton", "trtllm_mha"]
             prefill_attn_backend, decode_attn_backend = self.get_attention_backends()
             assert (
                 prefill_attn_backend in supported_backends
@@ -1307,21 +1192,16 @@ class ServerArgs:
                 if is_sm100_supported():
                     self.attention_backend, platform = "trtllm_mha", "sm100"
                 elif is_sm90_supported():
-                    self.attention_backend, platform = "fa3", "sm90"
-                elif self.device == "xpu":
-                    self.attention_backend, platform = "intel_xpu", "xpu"
+                    self.attention_backend, platform = "triton", "sm90"
                 else:
                     self.attention_backend, platform = "triton", "other platforms"
                 logger.warning(
                     f"Use {self.attention_backend} as attention backend on {platform} for Llama4 model"
                 )
             assert self.attention_backend in {
-                "fa3",
-                "aiter",
                 "triton",
                 "trtllm_mha",
-                "intel_xpu",
-            }, f"fa3, aiter, triton, trtllm_mha or intel_xpu is required for Llama4 model but got {self.attention_backend}"
+            }, f"triton or trtllm_mha is required for Llama4 model but got {self.attention_backend}"
             if is_sm100_supported() and self.moe_runner_backend == "auto":
                 if self.quantization in {"fp8", "modelopt_fp8"}:
                     self.moe_runner_backend = "flashinfer_trtllm"
@@ -1352,7 +1232,7 @@ class ServerArgs:
                 if is_cuda() and is_sm100_supported():
                     self.attention_backend = "trtllm_mha"
                 elif is_cuda() and get_device_sm() >= 80:
-                    self.attention_backend = "fa3"
+                    self.attention_backend = "triton"
                 else:
                     self.attention_backend = "triton"
 
@@ -1586,25 +1466,17 @@ class ServerArgs:
             Auto select the fastest attention backend.
 
             1. Models with MHA Architecture (e.g: Llama, QWen)
-                1.1 We will turn on FA3 on hopper unless user use spec decode with topk > 1 or page_size > 1.
-                1.2 Use trtllm_mha for SM100/SM103 (Blackwell B200/GB200/B300) excluding spec with topk > 1.
+                1.1 Use trtllm_mha for SM100/SM103 (Blackwell B200/GB200/B300) excluding spec with topk > 1.
                    Note: trtllm_mha does not support SM120, which will fall back to flashinfer.
-                1.3 In other cases, we will use flashinfer if available, otherwise use triton.
-            2. Models with MLA Architecture and using FA3
-                2.1 We will use FA3 backend on hopper.
-                2.2 We will use Flashinfer backend on blackwell.
-                2.3 Otherwise, we will use triton backend.
+                1.2 In other cases, we will use flashinfer if available, otherwise use triton.
+            2. Models with MLA Architecture
+                2.1 We will use Flashinfer backend on blackwell.
+                2.2 Otherwise, we will use triton backend.
             """
 
             if not use_mla_backend:
                 # MHA architecture
                 if (
-                    is_hopper_with_cuda_12_3()
-                    and is_no_spec_infer_or_topk_one(self)
-                    and is_fa3_default_architecture(self.model_config.hf_config)
-                ):
-                    self.attention_backend = "fa3"
-                elif (
                     is_sm100_supported()
                     and is_no_spec_infer_or_topk_one(self)
                     and (
@@ -1620,7 +1492,7 @@ class ServerArgs:
             else:
                 # MLA architecture
                 if is_hopper_with_cuda_12_3():
-                    self.attention_backend = "fa3"
+                    self.attention_backend = "triton"
                 elif is_sm100_supported():
                     self.attention_backend = "flashinfer"
                 else:
@@ -1647,15 +1519,6 @@ class ServerArgs:
             ), "Speculative decoding is currently not supported with Flex Attention backend"
 
         # Major NVIDIA platforms backends
-        if (
-            self.attention_backend == "flashmla"
-            or self.decode_attention_backend == "flashmla"
-        ):
-            logger.warning(
-                "FlashMLA only supports a page_size of 64, change page_size to 64."
-            )
-            self.page_size = 64
-
         if (
             self.attention_backend == "cutlass_mla"
             or self.decode_attention_backend == "cutlass_mla"
@@ -1701,73 +1564,22 @@ class ServerArgs:
                 )
                 self.page_size = 64
 
-        if self.attention_backend == "fa3" and self.kv_cache_dtype == "fp8_e5m2":
-            logger.warning(
-                "FlashAttention3 only supports fp8_e4m3 if using FP8; "
-                "Setting attention backend to triton."
-            )
-            self.attention_backend = "triton"
+        # Removed fa3, intel_amx, intel_xpu, dual_chunk_flash_attn - NVIDIA GPU only
 
-        if self.attention_backend == "fa4" or self.decode_attention_backend == "fa4":
-            raise ValueError(
-                "FA4 backend is only supported for prefill. Please use `--prefill-attention-backend fa4` instead."
-            )
-        if self.prefill_attention_backend == "fa4" and not self.use_mla_backend():
-            logger.warning(
-                f"FA4 backend only supports page size 128 for non-MLA model architectures, changing page_size from {self.page_size} to 128."
-            )
-            self.page_size = 128
-        if self.attention_backend == "aiter":
-            if model_config.context_len > 8192:
-                self.mem_fraction_static *= 0.85
-
-        # Other platforms backends
-        if (
-            self.attention_backend == "intel_amx"
-            and self.device == "cpu"
-            and not cpu_has_amx_support()
-        ):
-            logger.warning(
-                "The current platform does not support Intel AMX, will fallback to torch_native backend."
-            )
-            self.attention_backend = "torch_native"
-
-        if (
-            self.attention_backend == "intel_xpu"
-            and self.device == "xpu"
-            and not xpu_has_xmx_support()
-        ):
-            logger.warning(
-                "The current platform does not support Intel XMX, will fallback to triton backend."
-            )
-            self.attention_backend = "triton"
-
-        if self.attention_backend == "intel_xpu":
-            if self.page_size not in [32, 64, 128]:
-                logger.warning(
-                    f"Intel XPU attention backend only supports page_size of 32, 64 or 128, changing page_size from {self.page_size} to 128."
-                )
-                self.page_size = 128
-
-        # Dual chunk flash attention backend
+        # Dual chunk flash attention backend - removed (specialized variant)
         if (
             getattr(model_config.hf_config, "dual_chunk_attention_config", None)
             is not None
         ):
-            if self.attention_backend is None:
-                self.attention_backend = "dual_chunk_flash_attn"
-                logger.info("Dual chunk attention is turned on by default.")
-            elif self.attention_backend != "dual_chunk_flash_attn":
-                raise ValueError(
-                    "Dual chunk attention is enabled, but attention backend is set to "
-                    f"{self.attention_backend}. Please set it to 'dual_chunk_flash_attn'."
-                )
-        if self.attention_backend == "dual_chunk_flash_attn":
-            logger.warning(
-                "Mixed chunk and radix cache are disabled when using dual-chunk flash attention backend"
+            raise ValueError(
+                "Dual chunk attention models are not supported in this NVIDIA-only build. "
+                "Use triton or flashinfer attention backend instead."
             )
-            self.enable_mixed_chunk = False
-            self.disable_radix_cache = True
+        if self.attention_backend == "dual_chunk_flash_attn":
+            raise ValueError(
+                "Dual chunk flash attention backend is not supported in this NVIDIA-only build. "
+                "Use triton or flashinfer attention backend instead."
+            )
 
     def _handle_kv4_compatibility(self):
         """Check FP4 KV cache compatibility with the attention backend"""
@@ -1783,68 +1595,38 @@ class ServerArgs:
         if is_cuda():
             if (
                 self.prefill_attention_backend_str != self.decode_attention_backend_str
-                and self.prefill_attention_backend_str != "fa4"
-            ):  # Take care of prefill=fa4 later
+            ):  # Removed fa4 reference - not supported in NVIDIA-only build
                 logger.warning(
                     f"Attention: Using KV4 with PREFILL = {self.prefill_attention_backend_str} "
                     f"and DECODE = {self.decode_attention_backend_str}. "
                     f"Compatibility issues are unlikely, but may occur in rare edge cases."
                 )
             else:
-                if self.prefill_attention_backend_str == "fa4":
-                    if use_mla_backend:  # FA4 + MLA
-                        KV4_FA4_MLA_BACKEND_CHOICES = [
-                            "cutlass_mla",
-                            "flashinfer",
-                            "trtllm_mla",
-                        ]
-                        assert (
-                            self.decode_attention_backend_str
-                            in KV4_FA4_MLA_BACKEND_CHOICES
-                        ), (
-                            f"KV4 FA4 MLA expects decode_attention_backend to be one of "
-                            f"{KV4_FA4_MLA_BACKEND_CHOICES}, but got {self.decode_attention_backend_str}"
-                        )
-                    else:  # FA4 + MHA
-                        KV4_FA4_MHA_BACKEND_CHOICES = [
-                            "triton",
-                            "torch_native",
-                            "flex_attention",
-                        ]
-                        assert (
-                            self.decode_attention_backend_str
-                            in KV4_FA4_MHA_BACKEND_CHOICES
-                        ), (
-                            f"KV4 FA4 MHA expects decode_attention_backend to be one of "
-                            f"{KV4_FA4_MHA_BACKEND_CHOICES}, but got {self.decode_attention_backend_str}"
-                        )
-                else:
-                    if use_mla_backend:  # !FA4 + MLA
-                        KV4_ATTENTION_MLA_BACKEND_CHOICES = [
-                            "cutlass_mla",
-                            "flashinfer",
-                            "trtllm_mla",
-                            "flashmla",
-                        ]
-                        assert (
-                            self.attention_backend in KV4_ATTENTION_MLA_BACKEND_CHOICES
-                        ), (
-                            f"KV4 MLA expects attention_backend to be one of "
-                            f"{KV4_ATTENTION_MLA_BACKEND_CHOICES}, but got {self.attention_backend}"
-                        )
-                    else:  # !FA4 + MHA
-                        KV4_ATTENTION_MHA_BACKEND_CHOICES = [
-                            "triton",
-                            "torch_native",
-                            "flex_attention",
-                            "trtllm_mha",
-                        ]
-                        assert (
-                            self.attention_backend in KV4_ATTENTION_MHA_BACKEND_CHOICES
-                        ), (
-                            f"KV4 MHA expects attention_backend to be one of "
-                            f"{KV4_ATTENTION_MHA_BACKEND_CHOICES}, but got {self.attention_backend}"
-                        )
+                if use_mla_backend:  # MLA
+                    KV4_ATTENTION_MLA_BACKEND_CHOICES = [
+                        "cutlass_mla",
+                        "flashinfer",
+                        "trtllm_mla",
+                    ]
+                    assert (
+                        self.attention_backend in KV4_ATTENTION_MLA_BACKEND_CHOICES
+                    ), (
+                        f"KV4 MLA expects attention_backend to be one of "
+                        f"{KV4_ATTENTION_MLA_BACKEND_CHOICES}, but got {self.attention_backend}"
+                    )
+                else:  # MHA
+                    KV4_ATTENTION_MHA_BACKEND_CHOICES = [
+                        "triton",
+                        "torch_native",
+                        "flex_attention",
+                        "trtllm_mha",
+                    ]
+                    assert (
+                        self.attention_backend in KV4_ATTENTION_MHA_BACKEND_CHOICES
+                    ), (
+                        f"KV4 MHA expects attention_backend to be one of "
+                        f"{KV4_ATTENTION_MHA_BACKEND_CHOICES}, but got {self.attention_backend}"
+                    )
         else:
             raise RuntimeError("KV4 is not tested on non-CUDA platforms.")
 
@@ -1929,11 +1711,7 @@ class ServerArgs:
                 f"Mooncake MoE is enabled. The expert parallel size is adjusted to be the same as the tensor parallel size[{self.tp_size}]."
             )
 
-        if self.moe_a2a_backend == "ascend_fuseep":
-            self.ep_size = self.tp_size
-            logger.warning(
-                f"Ascend fused EP MoE is enabled. The expert parallel size is adjusted to be the same as the tensor parallel size[{self.tp_size}]."
-            )
+        # Removed ascend_fuseep check - NVIDIA GPU only
 
     def _handle_eplb_and_dispatch(self):
         if self.enable_eplb and (self.expert_distribution_recorder_mode is None):
@@ -1988,36 +1766,7 @@ class ServerArgs:
                 "Kernel io backend does not support page first direct layout"
             )
 
-        if (
-            self.enable_hierarchical_cache
-            or self.disaggregation_decode_enable_offload_kvcache
-        ) and self.hicache_io_backend == "kernel":
-            # fix for the compatibility issue with FlashAttention3 decoding and HiCache kernel backend
-            # Only override when the *effective* decode backend would be FA3.
-            # Otherwise, respect the user's chosen attention backend (e.g., aiter on ROCm).
-            effective_decode_backend = (
-                self.decode_attention_backend
-                if self.decode_attention_backend is not None
-                else self.attention_backend
-            )
-            if effective_decode_backend == "fa3":
-                if self.decode_attention_backend is None:
-                    # If decode backend wasn't explicitly set, pick a safe default that works with HiCache kernel IO.
-                    if not self.use_mla_backend():
-                        self.decode_attention_backend = (
-                            "flashinfer" if is_flashinfer_available() else "triton"
-                        )
-                    else:
-                        self.decode_attention_backend = (
-                            "flashinfer" if is_sm100_supported() else "triton"
-                        )
-                else:
-                    # If user explicitly requested FA3 decode, fall back to direct IO.
-                    self.hicache_io_backend = "direct"
-                    logger.warning(
-                        "FlashAttention3 decode backend is not compatible with hierarchical cache. "
-                        "Setting hicache_io_backend to vanilla I/O, which may lead to suboptimal performance with small page sizes."
-                    )
+        # HiCache kernel backend is now compatible with all remaining attention backends
 
         if self.hicache_storage_backend == "mooncake":
             if self.hicache_mem_layout == "layer_first":
@@ -2151,7 +1900,7 @@ class ServerArgs:
             if (
                 self.speculative_eagle_topk > 1
                 and self.page_size > 1
-                and self.attention_backend not in ["flashinfer", "fa3"]
+                and self.attention_backend not in ["flashinfer"]
             ):
                 raise ValueError(
                     "speculative_eagle_topk > 1 with page_size > 1 is unstable and produces incorrect results for paged attention backends. This combination is only supported for the 'flashinfer' backend."
@@ -2399,7 +2148,7 @@ class ServerArgs:
                         self.attention_backend = "flashinfer"
                 else:
                     # Hopper (SM90) and older architectures
-                    self.attention_backend = "fa3"
+                    self.attention_backend = "triton"
                 logger.warning(
                     f"Attention backend not specified. Falling back to '{self.attention_backend}' for deterministic inference. "
                     f"You can explicitly set --attention-backend to one of {DETERMINISTIC_ATTENTION_BACKEND_CHOICES}."
@@ -2412,7 +2161,7 @@ class ServerArgs:
                 )
 
             if is_deepseek_model:
-                if self.attention_backend not in ["fa3", "triton"]:
+                if self.attention_backend not in ["triton"]:
                     raise ValueError(
                         f"Currently only {RADIX_SUPPORTED_DETERMINISTIC_ATTENTION_BACKEND} attention backends are supported for deterministic inference with DeepSeek models. But you're using {self.attention_backend}."
                     )
@@ -3292,19 +3041,9 @@ class ServerArgs:
         parser.add_argument(
             "--mm-attention-backend",
             type=str,
-            choices=["sdpa", "fa3", "triton_attn", "ascend_attn", "aiter_attn"],
+            choices=["sdpa", "triton_attn"],
             default=ServerArgs.mm_attention_backend,
             help="Set multimodal attention backend.")
-        parser.add_argument(
-            "--nsa-prefill-backend",
-            default=ServerArgs.nsa_prefill_backend,
-            type=str,
-            choices=NSA_CHOICES)
-        parser.add_argument(
-            "--nsa-decode-backend",
-            default=ServerArgs.nsa_decode_backend,
-            type=str,
-            choices=NSA_CHOICES)
         parser.add_argument(
             "--fp8-gemm-backend",
             type=str,
@@ -3621,7 +3360,7 @@ class ServerArgs:
         parser.add_argument(
             "--hicache-io-backend",
             type=str,
-            choices=["direct", "kernel", "kernel_ascend"],
+            choices=["direct", "kernel"],
             default=ServerArgs.hicache_io_backend,
             help="The IO backend for KV cache transfer between CPU and GPU")
         parser.add_argument(
@@ -4023,17 +3762,6 @@ class ServerArgs:
             "--enable-attn-tp-input-scattered",
             action="store_true",
             help="Allow input of attention to be scattered when only using tensor parallelism, to reduce the computational load of operations such as qkv latent.")
-        parser.add_argument(
-            "--enable-nsa-prefill-context-parallel",
-            action="store_true",
-            help="Enable context parallelism used in the long sequence prefill phase of DeepSeek v3.2.")
-        parser.add_argument(
-            "--nsa-prefill-cp-mode",
-            type=str,
-            default=ServerArgs.nsa_prefill_cp_mode,
-            choices=NSA_PREFILL_CP_SPLIT_CHOICES,
-            help="Token splitting mode for the prefill phase of DeepSeek v3.2 under context parallelism. Optional values: 'in-seq-split' (default), 'round-robin-split'. "
-            "'round-robin-split' distributes tokens across ranks based on token_idx % cp_size. It supports multi-batch prefill, fused MoE, and FP8 KV cache.")
         parser.add_argument(
             "--enable-fused-qk-norm-rope",
             action="store_true",
