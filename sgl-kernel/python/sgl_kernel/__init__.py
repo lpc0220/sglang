@@ -32,7 +32,6 @@ from sgl_kernel.elementwise import (
     rmsnorm,
     rotary_embedding,
     silu_and_mul,
-    timestep_embedding,
 )
 from sgl_kernel.expert_specialization import (
     es_fp8_blockwise_scaled_grouped_mm,
@@ -65,7 +64,6 @@ from sgl_kernel.gemm import (
     shuffle_rows,
     silu_and_mul_scaled_fp4_grouped_quant,
 )
-from sgl_kernel.grammar import apply_token_bitmask_inplace_cuda
 from sgl_kernel.hadamard import (
     hadamard_transform,
     hadamard_transform_12n,
@@ -79,7 +77,6 @@ from sgl_kernel.kvcacheio import (
     transfer_kv_per_layer,
     transfer_kv_per_layer_mla,
 )
-from sgl_kernel.mamba import causal_conv1d_fwd, causal_conv1d_update
 from sgl_kernel.marlin import (
     awq_marlin_moe_repack,
     awq_marlin_repack,
@@ -99,14 +96,6 @@ from sgl_kernel.moe import (
     prepare_moe_input,
     topk_sigmoid,
     topk_softmax,
-)
-from sgl_kernel.quantization import (
-    ggml_dequantize,
-    ggml_moe_a8,
-    ggml_moe_a8_vec,
-    ggml_moe_get_block_size,
-    ggml_mul_mat_a8,
-    ggml_mul_mat_vec_a8,
 )
 from sgl_kernel.sampling import (
     min_p_sampling_from_probs,
