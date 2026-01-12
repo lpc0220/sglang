@@ -47,10 +47,8 @@ class ElasticEPStateManager:
     def _select_device() -> torch.device:
         if is_cuda():
             return torch.device("cuda")
-        elif is_cpu():
-            return torch.device("cpu")
         else:
-            raise NotImplementedError("Only CUDA and CPU support elastic ep now.")
+            raise NotImplementedError("Only CUDA supports elastic ep.")
 
     @classmethod
     def _build_state(

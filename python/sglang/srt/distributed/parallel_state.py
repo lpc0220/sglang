@@ -46,7 +46,6 @@ from sglang.srt.utils import (
     get_current_device_stream_fast,
     get_int_env_var,
     get_local_ip_auto,
-    is_cpu,
     is_cuda_alike,
     is_hip,
     is_npu,
@@ -56,7 +55,6 @@ from sglang.srt.utils import (
 from sglang.srt.utils.custom_op import register_custom_op
 
 _is_npu = is_npu()
-_is_cpu = is_cpu()
 _is_xpu = is_xpu()
 
 TensorMetadata = namedtuple("TensorMetadata", ["device", "dtype", "size"])

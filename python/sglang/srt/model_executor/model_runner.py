@@ -139,7 +139,6 @@ from sglang.srt.server_args import (
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.utils import (
     MultiprocessingSerializer,
-    cpu_has_amx_support,
     dynamic_import,
     enable_show_time_cost,
     get_available_gpu_memory,
@@ -177,7 +176,6 @@ from sglang.srt.weight_sync.tensor_bucket import (
 
 _is_hip = is_hip()
 _is_npu = is_npu()
-_is_cpu_amx_available = cpu_has_amx_support()
 _is_cpu_arm64 = is_host_cpu_arm64()
 
 if _is_npu:
@@ -729,24 +727,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         set_torch_symm_mem_all_reduce(self.server_args.enable_torch_symm_mem)
 
         if not self.is_draft_worker:
-            if self.device == "cpu":
-                if _is_cpu_amx_available or _is_cpu_arm64:
-                    # Bind OpenMP threads to CPU cores
-                    torch.ops.sgl_kernel.init_cpu_threads_env(self.local_omp_cpuid)
-
-                    # Set local size to hint SGLang to use shared memory based AllReduce
-                    os.environ["LOCAL_SIZE"] = str(self.tp_size)
-                    torch.ops.sgl_kernel.initialize(self.tp_size, self.tp_rank)
-
-                    @torch.library.register_fake("sgl_kernel::shm_allgather")
-                    def _(data, dim):
-                        return torch.cat([data] * self.tp_size, dim=dim)
-
-                else:
-                    logger.warning(
-                        "init_cpu_threads_env and shared memory based AllReduce is disabled, only intel amx backend and arm64 are supported"
-                    )
-
             # Only initialize the distributed environment on the target model worker.
             init_distributed_environment(
                 backend=backend,
@@ -766,8 +746,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 server_args=self.server_args,
                 model_config=self.model_config,
             )
-            if is_npu():
-                register_sgl_tp_rank(self.gpu_id)
 
         min_per_gpu_memory = get_available_gpu_memory(
             self.device,

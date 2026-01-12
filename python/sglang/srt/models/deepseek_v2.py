@@ -147,8 +147,6 @@ from sglang.srt.models.deepseek_common.attention_forward_methods.forward_methods
 )
 from sglang.srt.models.deepseek_common.utils import (
     _device_sm,
-    _is_cpu,
-    _is_cpu_amx_available,
     _is_cuda,
     _is_fp8_fnuz,
     _is_gfx95_supported,
@@ -203,8 +201,6 @@ if _is_cuda:
         dsv3_router_gemm,
         merge_state_v2,
     )
-elif _is_cpu and _is_cpu_amx_available:
-    pass
 elif _is_hip:
     from sglang.srt.layers.attention.triton_ops.rocm_mla_decode_rope import (
         decode_attention_fwd_grouped_rope,
@@ -362,8 +358,6 @@ class MoEGate(nn.Module):
             )
         else:
             self.e_score_correction_bias = None
-        if _is_cpu and _is_cpu_amx_available:
-            self.quant_method = PackWeightMethod(weight_names=["weight"])
         self.nsa_enable_prefill_cp = is_nsa_enable_prefill_cp()
 
     def forward(
@@ -1280,14 +1274,7 @@ class DeepseekV2AttentionMLA(nn.Module):
             envs.SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD.get()
         )
 
-        # If we have self.fused_qkv_a_proj_with_mqa and we're running on CPU, we will choose the torch.ops.sgl_kernel.qkv_proj_with_rope_fused_weight kernel
-        # which requires self.w_kc and self.w_vc to be packed.
-        # If not, we will use torch.bmm and weight shouldn't be packed in this case
         has_fused_proj = hasattr(self, "fused_qkv_a_proj_with_mqa")
-        if has_fused_proj and _is_cpu and _is_cpu_amx_available:
-            self.quant_method = PackWeightMethod(
-                weight_names=["w_kc", "w_vc"], transpose_dims=[[1, 2], [1, 2]]
-            )
 
         is_packed_weight = (
             has_fused_proj
@@ -1317,22 +1304,6 @@ class DeepseekV2AttentionMLA(nn.Module):
         )
 
         self.weight_block_size = None
-        if self.qkv_proj_with_rope_is_fp8 and _is_cpu and _is_cpu_amx_available:
-            assert getattr(
-                self.fused_qkv_a_proj_with_mqa.quant_method, "block_quant", False
-            ) == getattr(self.q_b_proj.quant_method, "block_quant", False)
-            use_block_quant = getattr(
-                self.fused_qkv_a_proj_with_mqa.quant_method, "block_quant", False
-            )
-
-            if use_block_quant:
-                assert (
-                    self.fused_qkv_a_proj_with_mqa.quant_method.quant_config.weight_block_size
-                    == self.q_b_proj.quant_method.quant_config.weight_block_size
-                )
-                self.weight_block_size = (
-                    self.fused_qkv_a_proj_with_mqa.quant_method.quant_config.weight_block_size
-                )
 
     def dispatch_attn_forward_method(
         self, forward_batch: ForwardBatch
@@ -3442,14 +3413,6 @@ class DeepseekV2ForCausalLM(nn.Module):
                     )
                     if _is_hip:
                         self_attn.w_scale *= 2.0
-                # TODO: remove this after adding FP8 support in bmm cpu kernel
-                if _is_cpu and _is_cpu_amx_available and w.dtype == torch.float8_e4m3fn:
-                    self_attn.w_kc = (
-                        self_attn.w_kc.to(torch.bfloat16) * self_attn.w_scale
-                    )
-                    self_attn.w_vc = (
-                        self_attn.w_vc.to(torch.bfloat16) * self_attn.w_scale
-                    )
             else:
                 num_tiles_k = self_attn.qk_nope_head_dim // weight_block_size[1]
                 num_tiles_n = self_attn.v_head_dim // weight_block_size[0]

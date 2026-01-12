@@ -91,10 +91,7 @@ class MetadataBuffers:
     ):
         self.custom_mem_pool = custom_mem_pool
         device = "cpu"
-        if is_npu():
-            # For ascend backend, output tokens are placed in the NPU and will be transferred by D2D channel.
-            device = "npu"
-        elif self.custom_mem_pool:
+        if self.custom_mem_pool:
             # TODO(shangming): Fix me (use 'cuda') when nvlink_transport of Mooncake is bug-free
             device = "cpu"
         with (

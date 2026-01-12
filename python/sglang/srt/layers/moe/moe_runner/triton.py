@@ -19,7 +19,7 @@ from sglang.srt.layers.moe.moe_runner.base import (
     register_pre_permute,
 )
 from sglang.srt.layers.moe.utils import MoeRunnerBackend
-from sglang.srt.utils import cpu_has_amx_support, is_cpu, is_cuda, is_hip
+from sglang.srt.utils import cpu_has_amx_support, is_cuda, is_hip
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher.standard import (
@@ -30,8 +30,6 @@ if TYPE_CHECKING:
 
 _is_hip = is_hip()
 _is_cuda = is_cuda()
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _use_aiter = bool(int(os.getenv("SGLANG_USE_AITER", "0")))
 _MOE_PADDING_SIZE = 128 if bool(int(os.getenv("SGLANG_MOE_PADDING", "0"))) else 0
 
@@ -49,8 +47,6 @@ if _is_cuda or _is_hip:
                 )
         else:
             from vllm import _custom_ops as vllm_ops  # moe_sum
-elif _is_cpu and _is_cpu_amx_available:
-    pass
 
 if _is_cuda or _is_hip:
     from sgl_kernel import (  # noqa: F401

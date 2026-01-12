@@ -132,52 +132,6 @@ def is_cuda_alike():
     return is_cuda() or is_hip()
 
 
-@lru_cache(maxsize=1)
-def is_hpu() -> bool:
-    return hasattr(torch, "hpu") and torch.hpu.is_available()
-
-
-@lru_cache(maxsize=1)
-def is_xpu() -> bool:
-    return hasattr(torch, "xpu") and torch.xpu.is_available()
-
-
-@lru_cache(maxsize=1)
-def is_npu() -> bool:
-    if not hasattr(torch, "npu"):
-        return False
-
-    if not torch.npu.is_available():
-        raise RuntimeError(
-            "torch_npu detected, but NPU device is not available or visible."
-        )
-
-    return True
-
-
-@lru_cache(maxsize=1)
-def is_host_cpu_x86() -> bool:
-    machine = platform.machine().lower()
-    return (
-        machine in ("x86_64", "amd64", "i386", "i686")
-        and hasattr(torch, "cpu")
-        and torch.cpu.is_available()
-    )
-
-
-def is_host_cpu_arm64() -> bool:
-    machine = platform.machine().lower()
-    return (
-        machine in ("aarch64", "arm64")
-        and hasattr(torch, "cpu")
-        and torch.cpu.is_available()
-    )
-
-
-@lru_cache(maxsize=1)
-def is_cpu() -> bool:
-    is_host_cpu_supported = is_host_cpu_x86() or is_host_cpu_arm64()
-    return os.getenv("SGLANG_USE_CPU_ENGINE", "0") == "1" and is_host_cpu_supported
 
 
 def is_float4_e2m1fn_x2(dtype) -> bool:
@@ -194,16 +148,12 @@ def get_cuda_version():
 
 @contextmanager
 def device_context(device: torch.device):
-    if device.type == "cpu" and is_cpu():
-        with torch.device("cpu"):
+    module = torch.get_device_module(device)
+    if module is not None:
+        with module.device(device.index):
             yield
     else:
-        module = torch.get_device_module(device)
-        if module is not None:
-            with module.device(device.index):
-                yield
-        else:
-            raise ValueError(f"Unknown device module: {device}")
+        raise ValueError(f"Unknown device module: {device}")
 
 
 def _check_cuda_device_version(
@@ -251,37 +201,6 @@ is_sm90_supported = lru_cache(maxsize=1)(
 )
 
 
-try:
-    import sgl_kernel  # noqa: F401
-
-    is_intel_amx_backend_available = hasattr(
-        torch.ops.sgl_kernel, "convert_weight_packed"
-    )
-except:
-    is_intel_amx_backend_available = False
-
-try:
-    # move torch._C._cpu._is_amx_tile_supported() from cpu_has_amx_support
-    # to support torch compile
-    is_amx_tile_supported = torch._C._cpu._is_amx_tile_supported()
-except:
-    is_amx_tile_supported = False
-
-
-def cpu_has_amx_support():
-    return is_amx_tile_supported and is_intel_amx_backend_available
-
-
-def use_intel_amx_backend(layer):
-    return getattr(layer, "use_intel_amx_backend", False)
-
-
-def xpu_has_xmx_support():
-    # TODO: update with XPU capalibity query
-    if is_xpu():
-        # currently only PVC/LNL/BMG supports F64, so we only support these now
-        return torch.xpu.get_device_properties().has_fp64
-    return False
 
 
 @lru_cache(maxsize=1)
@@ -1900,29 +1819,10 @@ def is_habana_available() -> bool:
 
 @lru_cache(maxsize=8)
 def get_device(device_id: Optional[int] = None) -> str:
-    if is_cpu():
-        if cpu_has_amx_support():
-            logger.info("Intel AMX is detected, using CPU with Intel AMX support.")
-        else:
-            logger.warning(
-                "CPU device enabled, using torch native backend, low performance expected."
-            )
-        return "cpu"
-
     if hasattr(torch, "cuda") and torch.cuda.is_available():
         if device_id is None:
             return "cuda"
         return "cuda:{}".format(device_id)
-
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
-        if device_id == None:
-            return "xpu"
-        return "xpu:{}".format(device_id)
-
-    if is_npu():
-        if device_id == None:
-            return "npu"
-        return "npu:{}".format(device_id)
 
     if is_habana_available():
         try:

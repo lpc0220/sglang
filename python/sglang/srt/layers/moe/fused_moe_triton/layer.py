@@ -61,7 +61,6 @@ from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
-    is_cpu,
     is_flashinfer_available,
     is_hip,
     next_power_of_2,
@@ -81,8 +80,6 @@ if get_moe_runner_backend().is_flashinfer_trtllm():
         trtllm_fp4_block_scale_moe = None
 
 _is_hip = is_hip()
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 logger = logging.getLogger(__name__)
@@ -395,26 +392,15 @@ class FusedMoE(torch.nn.Module):
         else:
             start = 0
 
-        if _is_cpu:
-            expert_data, loaded_weight = narrow_padded_param_and_loaded_weight(
-                expert_data,
-                loaded_weight,
-                start,
-                shard_size * tp_rank,
-                shard_dim,
-                shard_size,
-                not self.use_presharded_weights,
+        if not self.use_presharded_weights:
+            if not is_bias and self.use_triton_kernels:
+                # do not transpose for bias
+                loaded_weight = loaded_weight.transpose(-2, -1)
+            loaded_weight = loaded_weight.narrow(
+                shard_dim, shard_size * tp_rank, shard_size
             )
-        else:
-            if not self.use_presharded_weights:
-                if not is_bias and self.use_triton_kernels:
-                    # do not transpose for bias
-                    loaded_weight = loaded_weight.transpose(-2, -1)
-                loaded_weight = loaded_weight.narrow(
-                    shard_dim, shard_size * tp_rank, shard_size
-                )
 
-            expert_data = expert_data.narrow(shard_dim, start, shard_size)
+        expert_data = expert_data.narrow(shard_dim, start, shard_size)
         expert_data.copy_(loaded_weight)
 
     def _load_w2(
@@ -464,23 +450,12 @@ class FusedMoE(torch.nn.Module):
             # for w2 in TP, it shards the input_features, i.e., shard_dim=2
             shard_size = expert_data.shape[shard_dim]
 
-        if _is_cpu:
-            expert_data, loaded_weight = narrow_padded_param_and_loaded_weight(
-                expert_data,
-                loaded_weight,
-                0,  # param_data_start
-                shard_size * tp_rank,
-                shard_dim,
-                shard_size,
-                not self.use_presharded_weights,
+        if not is_bias and not self.use_presharded_weights:
+            if self.use_triton_kernels:
+                loaded_weight = loaded_weight.transpose(-2, -1)
+            loaded_weight = loaded_weight.narrow(
+                shard_dim, shard_size * tp_rank, shard_size
             )
-        else:
-            if not is_bias and not self.use_presharded_weights:
-                if self.use_triton_kernels:
-                    loaded_weight = loaded_weight.transpose(-2, -1)
-                loaded_weight = loaded_weight.narrow(
-                    shard_dim, shard_size * tp_rank, shard_size
-                )
 
         # w2, down_proj: Load into only logical weight of w2.
         expert_data.copy_(loaded_weight)

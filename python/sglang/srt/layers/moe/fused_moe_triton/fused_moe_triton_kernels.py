@@ -22,7 +22,6 @@ from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
     get_device_name,
-    is_cpu,
     is_cuda,
     is_hip,
     is_sm90_supported,
@@ -37,13 +36,9 @@ except:
 
 _is_hip = is_hip()
 _is_cuda = is_cuda()
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _is_cuda:
-    pass
-elif _is_cpu and _is_cpu_amx_available:
     pass
 elif _is_hip:
     pass

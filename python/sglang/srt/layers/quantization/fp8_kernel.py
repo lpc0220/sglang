@@ -29,7 +29,6 @@ from sglang.srt.utils import (
     get_bool_env_var,
     get_device_core_count,
     get_device_name,
-    is_cpu,
     is_cuda,
     is_hip,
     log_info_on_rank0,
@@ -38,7 +37,6 @@ from sglang.srt.utils.custom_op import register_custom_op
 
 _is_hip = is_hip()
 _is_cuda = is_cuda()
-_is_cpu = is_cpu()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _is_cuda:

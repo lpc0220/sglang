@@ -33,7 +33,7 @@ from sglang.srt.layers.parameter import (
 )
 from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
 from sglang.srt.layers.utils import pad_or_narrow_weight
-from sglang.srt.utils import get_bool_env_var, is_cpu, is_hip, is_npu, set_weight_attrs
+from sglang.srt.utils import get_bool_env_var, is_hip, is_npu, set_weight_attrs
 
 if TYPE_CHECKING:
     from sglang.srt.layers.quantization.base_config import (
@@ -68,7 +68,6 @@ WEIGHT_LOADER_V2_SUPPORTED = [
     "PetitNvFp4LinearMethod",
 ]
 
-_is_cpu = is_cpu()
 _is_npu = is_npu()
 
 
@@ -382,25 +381,10 @@ class ColumnParallelLinear(LinearBase):
             shard_size = param_data.shape[output_dim]
             start_idx = self.tp_rank * shard_size
 
-            if _is_cpu:
-                from sglang.srt.model_loader.weight_utils import (
-                    narrow_padded_param_and_loaded_weight,
+            if not self.use_presharded_weights:
+                loaded_weight = loaded_weight.narrow(
+                    output_dim, start_idx, shard_size
                 )
-
-                param_data, loaded_weight = narrow_padded_param_and_loaded_weight(
-                    param_data,
-                    loaded_weight,
-                    0,  # param_data_start
-                    start_idx,
-                    output_dim,
-                    shard_size,
-                    not self.use_presharded_weights,
-                )
-            else:
-                if not self.use_presharded_weights:
-                    loaded_weight = loaded_weight.narrow(
-                        output_dim, start_idx, shard_size
-                    )
 
         # Special case for loading scales off disk, which often do not
         # have a shape (such as in the case of AutoFP8).
@@ -574,10 +558,6 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
             packed_dim = getattr(param, "packed_dim", None)
 
             use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
-            if _is_cpu:
-                shard_offsets = adjust_shard_offsets(
-                    shard_offsets, loaded_weight, output_dim
-                )
 
             for shard_id, shard_offset, shard_size in shard_offsets:
                 # Special case for Quantization.
@@ -632,34 +612,19 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
             param_data = param_data.narrow(output_dim, shard_offset, shard_size)
             start_idx = self.tp_rank * shard_size
 
-            if _is_cpu:
-                from sglang.srt.model_loader.weight_utils import (
-                    narrow_padded_param_and_loaded_weight,
-                )
-
-                param_data, loaded_weight = narrow_padded_param_and_loaded_weight(
-                    param_data,
-                    loaded_weight,
-                    0,  # param_data_start
-                    start_idx,
-                    output_dim,
-                    shard_size,
-                    not use_bitsandbytes_4bit and not self.use_presharded_weights,
-                )
-            else:
-                # bitsandbytes loads the weights of the specific portion
-                # no need to narrow here
-                if not use_bitsandbytes_4bit and not self.use_presharded_weights:
-                    # Padding for special case like qwen2_5_VL's mlp which is not 8-aligned
-                    end_idx = start_idx + shard_size
-                    if end_idx > loaded_weight.shape[output_dim]:
-                        loaded_weight = pad_or_narrow_weight(
-                            loaded_weight, output_dim, start_idx, shard_size
-                        )
-                    else:
-                        loaded_weight = loaded_weight.narrow(
-                            output_dim, start_idx, shard_size
-                        )
+            # bitsandbytes loads the weights of the specific portion
+            # no need to narrow here
+            if not use_bitsandbytes_4bit and not self.use_presharded_weights:
+                # Padding for special case like qwen2_5_VL's mlp which is not 8-aligned
+                end_idx = start_idx + shard_size
+                if end_idx > loaded_weight.shape[output_dim]:
+                    loaded_weight = pad_or_narrow_weight(
+                        loaded_weight, output_dim, start_idx, shard_size
+                    )
+                else:
+                    loaded_weight = loaded_weight.narrow(
+                        output_dim, start_idx, shard_size
+                    )
 
         # Special case for AQLM codebooks.
         elif is_metadata:
@@ -1071,10 +1036,6 @@ class QKVParallelLinear(ColumnParallelLinear):
             use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
 
             packed_dim = getattr(param, "packed_dim", None)
-            if _is_cpu:
-                shard_offsets = adjust_shard_offsets(
-                    shard_offsets, loaded_weight, output_dim
-                )
 
             for shard_id, shard_offset, shard_size in shard_offsets:
                 # Special case for Quantized Weights.
@@ -1175,27 +1136,12 @@ class QKVParallelLinear(ColumnParallelLinear):
                 shard_id = self.tp_rank // self.num_kv_head_replicas
             start_idx = shard_id * shard_size
 
-            if _is_cpu:
-                from sglang.srt.model_loader.weight_utils import (
-                    narrow_padded_param_and_loaded_weight,
+            # bitsandbytes loads the weights of the specific portion
+            # no need to narrow here
+            if not use_bitsandbytes_4bit and not self.use_presharded_weights:
+                loaded_weight = loaded_weight.narrow(
+                    output_dim, start_idx, shard_size
                 )
-
-                param_data, loaded_weight = narrow_padded_param_and_loaded_weight(
-                    param_data,
-                    loaded_weight,
-                    0,  # param_data_start
-                    start_idx,
-                    output_dim,
-                    shard_size,
-                    not use_bitsandbytes_4bit and not self.use_presharded_weights,
-                )
-            else:
-                # bitsandbytes loads the weights of the specific portion
-                # no need to narrow here
-                if not use_bitsandbytes_4bit and not self.use_presharded_weights:
-                    loaded_weight = loaded_weight.narrow(
-                        output_dim, start_idx, shard_size
-                    )
 
         # Special case for for AQLM codebooks.
         elif is_metadata:
@@ -1334,30 +1280,16 @@ class RowParallelLinear(LinearBase):
             shard_size = param_data.shape[input_dim]
             start_idx = self.tp_rank * shard_size
 
-            if _is_cpu:
-                from sglang.srt.model_loader.weight_utils import (
-                    narrow_padded_param_and_loaded_weight,
-                )
-
-                param_data, loaded_weight = narrow_padded_param_and_loaded_weight(
-                    param_data,
-                    loaded_weight,
-                    0,  # param_data_start
-                    start_idx,
-                    input_dim,
-                    shard_size,
+            # Padding for special case like qwen2_5_VL's mlp which is not 8-aligned
+            end_idx = start_idx + shard_size
+            if end_idx > loaded_weight.shape[input_dim]:
+                loaded_weight = pad_or_narrow_weight(
+                    loaded_weight, input_dim, start_idx, shard_size
                 )
             else:
-                # Padding for special case like qwen2_5_VL's mlp which is not 8-aligned
-                end_idx = start_idx + shard_size
-                if end_idx > loaded_weight.shape[input_dim]:
-                    loaded_weight = pad_or_narrow_weight(
-                        loaded_weight, input_dim, start_idx, shard_size
-                    )
-                else:
-                    loaded_weight = loaded_weight.narrow(
-                        input_dim, start_idx, shard_size
-                    )
+                loaded_weight = loaded_weight.narrow(
+                    input_dim, start_idx, shard_size
+                )
 
         # Special case for loading scales off disk, which often do not
         # have a shape (such as in the case of AutoFP8).

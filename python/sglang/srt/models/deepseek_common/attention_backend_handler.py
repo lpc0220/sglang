@@ -5,7 +5,6 @@ from sglang.srt.models.deepseek_common.attention_forward_methods.forward_methods
 )
 from sglang.srt.models.deepseek_common.utils import _is_hip
 from sglang.srt.server_args import get_global_server_args
-from sglang.srt.utils import use_intel_amx_backend
 
 
 class AttentionBackendRegistry:
@@ -27,28 +26,7 @@ def _dispatch_mla_subtype(attn, forward_batch):
         else:
             return AttnForwardMethod.MLA
     else:
-        if hasattr(attn, "fused_qkv_a_proj_with_mqa") and use_intel_amx_backend(attn):
-            return AttnForwardMethod.MLA_FUSED_ROPE_CPU
-        else:
-            return AttnForwardMethod.MLA
-
-
-def handle_attention_ascend(attn, forward_batch):
-    if (
-        forward_batch.forward_mode.is_extend()
-        and not forward_batch.forward_mode.is_target_verify()
-        and not forward_batch.forward_mode.is_draft_extend()
-        and not forward_batch.forward_mode.is_draft_extend_v2()
-    ):
-        if hasattr(attn, "indexer"):
-            return AttnForwardMethod.DSA_NPU
-        else:
-            return AttnForwardMethod.MHA_NPU
-    else:
-        if hasattr(attn, "indexer"):
-            return AttnForwardMethod.DSA_NPU
-        else:
-            return AttnForwardMethod.MLA_NPU
+        return AttnForwardMethod.MLA
 
 
 def _get_sum_extend_prefix_lens(forward_batch):
@@ -170,7 +148,6 @@ def handle_attention_triton(attn, forward_batch):
         return _dispatch_mla_subtype(attn, forward_batch)
 
 
-AttentionBackendRegistry.register("ascend", handle_attention_ascend)
 AttentionBackendRegistry.register("flashinfer", handle_attention_flashinfer)
 AttentionBackendRegistry.register("fa3", handle_attention_fa3)
 AttentionBackendRegistry.register("flashmla", handle_attention_flashmla)

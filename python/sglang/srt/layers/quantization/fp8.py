@@ -65,7 +65,6 @@ from sglang.srt.layers.quantization.utils import (
 from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
-    is_cpu,
     is_cuda,
     is_hip,
     is_npu,
@@ -85,8 +84,6 @@ if TYPE_CHECKING:
 _is_hip = is_hip()
 _is_cuda = is_cuda()
 _is_npu = is_npu()
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _is_fp8_fnuz = is_fp8_fnuz()
 _use_hip_int4 = get_bool_env_var("SGLANG_INT4_WEIGHT") and _is_hip
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
@@ -351,15 +348,6 @@ class Fp8LinearMethod(LinearMethodBase):
                     input_scale=None,
                 )
                 layer.input_scale = None
-            elif _is_cpu:
-                assert (
-                    _is_cpu_amx_available
-                ), "Fp8LinearMethod on CPU requires that CPU has AMX support"
-                _amx_process_weight_after_loading(layer, ["weight"])
-                layer.weight_scale_inv = torch.nn.Parameter(
-                    layer.weight_scale_inv.data, requires_grad=False
-                )
-                return
             else:
                 # For fp8 linear weights run with deepgemm, the weights and scales need be requantized to ue8m0
                 from sglang.srt.layers.quantization.fp8_utils import (
@@ -811,11 +799,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                 layer.w2_weight.data = shuffle_weight(
                     layer.w2_weight.contiguous(), (16, 16)
                 )
-            elif _is_cpu:
-                assert (
-                    _is_cpu_amx_available
-                ), "Fp8MoEMethod on CPU requires that CPU has AMX support"
-                _amx_process_weight_after_loading(layer, ["w13_weight", "w2_weight"])
             else:
                 # For fp8 moe run with deepgemm, the expert weights and scales need be requantized to ue8m0
                 from sglang.srt.layers.moe.ep_moe.layer import DeepEPMoE

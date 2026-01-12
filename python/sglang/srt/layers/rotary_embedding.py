@@ -14,10 +14,8 @@ import triton.language as tl
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_bool_env_var,
     get_compiler_backend,
-    is_cpu,
     is_cuda,
     is_hip,
     is_npu,
@@ -28,8 +26,6 @@ _is_cuda = is_cuda()
 _is_hip = is_hip()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 _is_npu = is_npu()
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _is_xpu = is_xpu()
 
 if _is_cuda:
@@ -325,19 +321,9 @@ class RotaryEmbedding(MultiPlatformOp):
         ), "fused_set_kv_buffer_arg is not supported for cpu implementation"
 
         positions = torch.add(positions, offsets) if offsets is not None else positions
-        if _is_cpu_amx_available:
-            return torch.ops.sgl_kernel.rotary_embedding_cpu(
-                positions,
-                query,
-                key,
-                self.head_size,
-                self.cos_sin_cache,
-                self.is_neox_style,
-            )
-        else:
-            return self.forward_native(
-                positions, query, key, offsets, fused_set_kv_buffer_arg
-            )
+        return self.forward_native(
+            positions, query, key, offsets, fused_set_kv_buffer_arg
+        )
 
     def forward_cuda(
         self,
@@ -1005,12 +991,7 @@ class DeepseekScalingRotaryEmbedding(RotaryEmbedding):
         offsets: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         positions = torch.add(positions, offsets) if offsets is not None else positions
-        if _is_cpu_amx_available:
-            return torch.ops.sgl_kernel.rotary_embedding_cpu(
-                positions, query, key, self.head_size, self.cos_sin_cache, False
-            )
-        else:
-            return self.forward_native(positions, query, key, offsets)
+        return self.forward_native(positions, query, key, offsets)
 
 
 class Llama3RotaryEmbedding(RotaryEmbedding):

@@ -23,7 +23,6 @@ from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.utils import (
     cpu_has_amx_support,
     get_bool_env_var,
-    is_cpu,
     is_hip,
     next_power_of_2,
     set_weight_attrs,
@@ -37,9 +36,7 @@ if TYPE_CHECKING:
     )
 
 
-_is_cpu_amx_available = cpu_has_amx_support()
 _is_hip = is_hip()
-_is_cpu = is_cpu()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 if _use_aiter:
@@ -117,8 +114,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
         set_weight_attrs(weight, extra_weight_attrs)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
-        if _is_cpu and _is_cpu_amx_available:
-            _amx_process_weight_after_loading(layer, ["weight"])
+        pass
 
     def apply(
         self,
@@ -226,10 +222,6 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, MultiPlatformOp):
                 requires_grad=False,
             )
             torch.cuda.empty_cache()
-
-        # Pack weight for get better performance on CPU
-        if _is_cpu and _is_cpu_amx_available:
-            _amx_process_weight_after_loading(layer, ["w13_weight", "w2_weight"])
 
         # Reorder rows of W1 for fused gated activation
         if self.use_flashinfer_trtllm_moe:

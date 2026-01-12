@@ -31,8 +31,6 @@ from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
-    cpu_has_amx_support,
-    is_cpu,
     is_cuda,
     is_hip,
     is_npu,
@@ -43,8 +41,6 @@ from sglang.utils import resolve_obj_by_qualname
 
 _is_cuda = is_cuda()
 _is_npu = is_npu()
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _is_hip = is_hip()
 _is_xpu = is_xpu()
 
@@ -52,9 +48,6 @@ if _is_cuda or _is_xpu:
     from sgl_kernel import gelu_and_mul, gelu_tanh_and_mul, silu_and_mul
 elif _is_hip:
     from sgl_kernel import gelu_and_mul, gelu_quick, gelu_tanh_and_mul, silu_and_mul
-
-if is_npu():
-    import torch_npu
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +70,7 @@ class SiluAndMul(MultiPlatformOp):
         return out
 
     def forward_cpu(self, x: torch.Tensor) -> torch.Tensor:
-        if _is_cpu_amx_available:
-            out = torch.ops.sgl_kernel.silu_and_mul_cpu(x)
-            return out
-        else:
-            return self.forward_native(x)
+        return self.forward_native(x)
 
     def forward_npu(self, x: torch.Tensor) -> torch.Tensor:
         out = torch_npu.npu_swiglu(x)
@@ -117,12 +106,7 @@ class GeluAndMul(MultiPlatformOp):
         return F.gelu(x[..., :d], approximate=self.approximate) * x[..., d:]
 
     def forward_cpu(self, x: torch.Tensor) -> torch.Tensor:
-        if _is_cpu_amx_available and self.approximate == "tanh":
-            return torch.ops.sgl_kernel.gelu_tanh_and_mul_cpu(x)
-        elif _is_cpu_amx_available and self.approximate == "none":
-            return torch.ops.sgl_kernel.gelu_and_mul_cpu(x)
-        else:
-            return self.forward_native(x)
+        return self.forward_native(x)
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         return self._forward_impl(x)

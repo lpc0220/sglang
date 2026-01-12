@@ -28,17 +28,13 @@ from sglang.srt.layers.quantization.base_config import (
 )
 from sglang.srt.layers.quantization.unquant import UnquantizedEmbeddingMethod
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_compiler_backend,
-    is_cpu,
     is_npu,
     set_weight_attrs,
 )
 
 DEFAULT_VOCAB_PADDING_SIZE = 64
 
-_is_cpu_amx_available = cpu_has_amx_support()
-_is_cpu = is_cpu()
 _is_npu = is_npu()
 
 logger = logging.getLogger(__name__)
@@ -225,12 +221,6 @@ class VocabParallelEmbedding(torch.nn.Module):
         self.num_embeddings = num_embeddings
         self.org_vocab_size = org_num_embeddings or num_embeddings
 
-        # Support the case where the vocab size is not divisible by the TP size.
-        if (
-            _is_cpu
-            and pad_vocab_size(self.org_vocab_size, padding_size) % self.tp_size != 0
-        ):
-            padding_size *= self.tp_size
         self.padding_size = padding_size
 
         num_added_embeddings = num_embeddings - self.org_vocab_size
@@ -540,14 +530,6 @@ class ParallelLMHead(VocabParallelEmbedding):
             use_presharded_weights=use_presharded_weights,
         )
         self.quant_config = quant_config
-
-        # We only support pack LMHead if it's not quantized.
-        if _is_cpu and _is_cpu_amx_available:
-            if hasattr(self, "weight") and self.weight.dtype in [
-                torch.bfloat16,
-                torch.float16,
-            ]:
-                self.quant_method = PackWeightMethod(weight_names=["weight"])
 
         if bias:
             self.bias = Parameter(
