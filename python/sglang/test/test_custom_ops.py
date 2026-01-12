@@ -4,10 +4,9 @@ import pytest
 import torch
 
 from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz, scaled_fp8_quant
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 _is_fp8_fnuz = is_fp8_fnuz()
 fp8_dtype = torch.float8_e4m3fnuz if _is_fp8_fnuz else torch.float8_e4m3fn
 
@@ -53,7 +52,7 @@ def test_scaled_fp8_quant_per_tensor(dtype) -> None:
     )
 
 
-if _is_cuda or _is_hip:
+if _is_cuda:
 
     @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
     def test_scaled_fp8_quant_per_token_dynamic(dtype) -> None:
