@@ -195,10 +195,10 @@ class DeepEPBuffer:
         else:
             raise NotImplementedError
 
-                    total_num_sms = torch.cuda.get_device_properties(
-                device="cuda"
-            ).multi_processor_count
-            if (
+        total_num_sms = torch.cuda.get_device_properties(
+            device="cuda"
+        ).multi_processor_count
+        if (
                 (deepep_mode != DeepEPMode.LOW_LATENCY)
                 and not is_tbo_enabled()
                 and (DeepEPConfig.get_instance().num_sms < total_num_sms // 2)

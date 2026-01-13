@@ -185,29 +185,27 @@ class PyMscclppCommunicator:
             self.context_selection = MscclContextSelection.MSCCL1SHOT1NODELL
         elif world_size == 16:
             self.context_selection = MscclContextSelection.MSCCL1SHOT2NODELL
-                    self.scratch = torch.empty(
-                self.max_bytes * 8,
-                dtype=torch.uint8,
-                device=self.device,
-            )
-            self.put_buffer = torch.empty(
-                self.max_bytes * 8 // self.nranks_per_node,
-                dtype=torch.uint8,
-                device=self.device,
-            )
-            self._context = ops.mscclpp_init_context(
-                self.unique_id,
-                self.rank,
-                self.world_size,
-                self.scratch,
-                self.put_buffer,
-                self.nranks_per_node,
-                self.rank_to_node,
-                self.rank_to_ib,
-                int(self.context_selection),
-            )
-        else:
-            raise NotImplementedError("HIP Mscclpp is not supported yet.")
+        self.scratch = torch.empty(
+            self.max_bytes * 8,
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        self.put_buffer = torch.empty(
+            self.max_bytes * 8 // self.nranks_per_node,
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        self._context = ops.mscclpp_init_context(
+            self.unique_id,
+            self.rank,
+            self.world_size,
+            self.scratch,
+            self.put_buffer,
+            self.nranks_per_node,
+            self.rank_to_node,
+            self.rank_to_ib,
+            int(self.context_selection),
+        )
 
         self.msg_size2best_config = {}
         self.pre_tune_config()

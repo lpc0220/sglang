@@ -106,7 +106,7 @@ class AWQConfig(QuantizationConfig):
     @classmethod
     def get_min_capability(cls) -> int:
         # The AWQ kernel only supports Turing or newer GPUs.
-                    return 75
+        return 75
 
     @staticmethod
     def get_config_filenames() -> List[str]:
@@ -130,9 +130,55 @@ class AWQConfig(QuantizationConfig):
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional[LinearMethodBase]:
         from sglang.srt.layers.linear import LinearBase
-        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
 
-                    group_size = input_size
+        if isinstance(layer, LinearBase):
+            if is_layer_skipped_awq(prefix, self.modules_to_not_convert):
+                return UnquantizedLinearMethod()
+            return AWQLinearMethod(self)
+        return None
+
+
+class AWQLinearMethod(LinearMethodBase):
+    """Linear method for AWQ.
+
+    Args:
+        quant_config: The AWQ quantization config.
+    """
+
+    def __init__(self, quant_config: AWQConfig):
+        self.quant_config = quant_config
+
+    def create_weights(
+        self,
+        layer: torch.nn.Module,
+        input_size_per_partition: int,
+        output_partition_sizes: List[int],
+        input_size: int,
+        output_size: int,
+        params_dtype: torch.dtype,
+        **extra_weight_attrs,
+    ):
+        del output_size  # Unused.
+        output_size_per_partition = sum(output_partition_sizes)
+        if input_size_per_partition % self.quant_config.group_size != 0:
+            raise ValueError(
+                "The input size is not aligned with the quantized "
+                "weight shape. This can be caused by too large "
+                "tensor parallel size."
+            )
+        if output_size_per_partition % self.quant_config.pack_factor != 0:
+            raise ValueError(
+                "The output size is not aligned with the quantized "
+                "weight shape. This can be caused by too large "
+                "tensor parallel size."
+            )
+
+        weight_loader = extra_weight_attrs.get("weight_loader")
+
+        if self.quant_config.group_size != -1:
+            group_size = self.quant_config.group_size
+        else:
+            group_size = input_size
 
         verify_marlin_supports_shape(
             output_size_per_partition=output_size_per_partition,

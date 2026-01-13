@@ -306,3 +306,23 @@ def with_nvml_context(fn: Callable[_P, _R]) -> Callable[_P, _R]:
 
 @with_nvml_context
 def is_full_nvlink(physical_device_ids: List[int], world_size: int) -> bool:
+    """
+    query if the set of gpus are fully connected by nvlink (1 hop)
+    """
+    handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in physical_device_ids]
+    for i, handle in enumerate(handles):
+        for j, peer_handle in enumerate(handles):
+            if i < j:
+                try:
+                    p2p_status = pynvml.nvmlDeviceGetP2PStatus(
+                        handle, peer_handle, pynvml.NVML_P2P_CAPS_INDEX_NVLINK
+                    )
+                    if p2p_status != pynvml.NVML_P2P_STATUS_OK:
+                        return False
+                except pynvml.NVMLError:
+                    logger.exception(
+                        "NVLink detection failed. This is normal if your"
+                        " machine has no NVLink equipped."
+                    )
+                    return False
+    return True

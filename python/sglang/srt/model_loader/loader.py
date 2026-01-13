@@ -586,32 +586,6 @@ class DefaultModelLoader(BaseModelLoader):
                 # parameters onto device for processing and back off after.
                 with device_loading_context(module, target_device):
                     quant_method.process_weights_after_loading(module)
-                                    total_size = weight_tensor.size(0)
-                    start_index = total_size // tp_size * tp_rank
-                    end_index = total_size // tp_size * (tp_rank + 1)
-                    weight_sub_tensor = weight_tensor[start_index:end_index, ...]
-
-                # bitsandbytes requires data in GPU
-                if weight_sub_tensor.is_cuda:
-                    loaded_weight = weight_sub_tensor
-                else:
-                    loaded_weight = weight_sub_tensor.cuda()
-
-                # remove the following after the issue is fixed:
-                # https://github.com/bitsandbytes-foundation/bitsandbytes/issues/1342
-                if loaded_weight.is_contiguous() is False:
-                    loaded_weight = loaded_weight.contiguous()
-
-                with set_default_torch_dtype(torch.float32):
-                    processed_weight, quant_state = quantize_4bit(
-                        loaded_weight, compress_statistics=True, quant_type="nf4"
-                    )
-
-                quant_state_dict[weight_name] = quant_state
-            else:
-                processed_weight = weight_tensor
-
-            yield weight_name, processed_weight
 
     def _load_weights(self, model_config: ModelConfig, model: nn.Module) -> None:
         if not hasattr(model, "load_weights"):
