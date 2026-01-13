@@ -461,6 +461,103 @@ def triton_scaled_mm(
     return result.to(out_dtype)
 
 
+def create_per_token_group_quant_fp8_output_scale(
+    x_shape,
+    device,
+    group_size,
+    column_major_scales: bool,
+    scale_tma_aligned: bool,
+    scale_ue8m0: bool,
+):
+    if scale_ue8m0:
+        assert column_major_scales and scale_tma_aligned
+        *x_batch, x_q_mn, x_q_k = x_shape
+        x_s_mn, x_s_k = x_q_mn, x_q_k // 128
+        aligned_mn = ceil_align(x_s_mn, 4)
+        aligned_k = ceil_align(x_s_k, 4)
+        # TODO(FIXME): Fix cuda kernel and recover here to empty.
+        return torch.empty(
+            (*x_batch, aligned_k // 4, aligned_mn),
+            device=device,
+            dtype=torch.int,
+        ).transpose(-1, -2)[..., :x_s_mn, :]
+    elif column_major_scales:
+        if scale_tma_aligned:
+            # TODO extract "align" function
+            # aligned to 4 * sizeof(float)
+            aligned_size = (x_shape[-2] + 3) // 4 * 4
+            return torch.empty(
+                x_shape[:-2] + (x_shape[-1] // group_size, aligned_size),
+                device=device,
+                dtype=torch.float32,
+            ).transpose(-1, -2)[: x_shape[-2], :]
+        else:
+            return torch.empty(
+                (x_shape[-1] // group_size,) + x_shape[:-1],
+                device=device,
+                dtype=torch.float32,
+            ).permute(-1, -2)
+    else:
+        return torch.empty(
+            x_shape[:-1] + (x_shape[-1] // group_size,),
+            device=device,
+            dtype=torch.float32,
+        )
+
+
+def sglang_per_token_group_quant_fp8(
+    x: torch.Tensor,
+    group_size: int,
+    eps: float = 1e-10,
+    column_major_scales: bool = False,
+    scale_tma_aligned: bool = False,
+    scale_ue8m0: bool = False,
+    fuse_silu_and_mul: bool = False,
+    masked_m: Optional[torch.Tensor] = None,
+    enable_v2: Optional[bool] = None,
+):
+    assert (
+        x.shape[-1] % group_size == 0
+    ), "the last dimension of `x` cannot be divisible by `group_size`"
+    assert x.is_contiguous(), "`x` is not contiguous"
+
+    out_shape = (*x.shape[:-1], x.shape[-1] // (2 if fuse_silu_and_mul else 1))
+
+    x_q = torch.empty(out_shape, device=x.device, dtype=fp8_dtype)
+    x_s = create_per_token_group_quant_fp8_output_scale(
+        x_shape=out_shape,
+        device=x.device,
+        group_size=group_size,
+        column_major_scales=column_major_scales,
+        scale_tma_aligned=scale_tma_aligned,
+        scale_ue8m0=scale_ue8m0,
+    )
+
+    if x.shape[0] > 0:
+        # Temporary
+        if enable_sgl_per_token_group_quant_8bit:
+            sgl_per_token_group_quant_8bit(
+                x,
+                x_q,
+                x_s,
+                group_size,
+                eps,
+                fp8_min,
+                fp8_max,
+                scale_ue8m0,
+                fuse_silu_and_mul,
+                masked_m,
+                enable_v2=enable_v2,
+            )
+        else:
+            assert not enable_v2
+            sgl_per_token_group_quant_fp8(
+                x, x_q, x_s, group_size, eps, fp8_min, fp8_max, scale_ue8m0
+            )
+
+    return x_q, x_s
+
+
 if _is_cuda:
     if enable_sgl_per_token_group_quant_8bit:
 
