@@ -17,7 +17,6 @@ class DummyConfig:
 CompressedTensorsConfig = DummyConfig
 
 from sglang.srt.layers.quantization.auto_round import AutoRoundConfig
-# REMOVED: AWQConfig, AWQMarlinConfig - DeepSeek R1 uses FP4/FP8 only
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.quantization.blockwise_int8 import BlockInt8Config
 from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import (
@@ -25,7 +24,6 @@ from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import
 )
 from sglang.srt.layers.quantization.fp8 import Fp8Config
 from sglang.srt.layers.quantization.fpgemm_fp8 import FBGEMMFp8Config
-# REMOVED: GGUFConfig - GGUF kernels not compiled, DeepSeek uses NVIDIA FP4/FP8
 from sglang.srt.layers.quantization.gptq import GPTQConfig, GPTQMarlinConfig
 from sglang.srt.layers.quantization.modelopt_quant import (
     ModelOptFp4Config,
@@ -55,9 +53,6 @@ BASE_QUANTIZATION_METHODS: Dict[str, Type[QuantizationConfig]] = {
     "modelopt_fp4": ModelOptFp4Config,
     "w8a8_int8": W8A8Int8Config,
     "w8a8_fp8": W8A8Fp8Config,
-    # REMOVED: "awq": AWQConfig - DeepSeek R1 uses FP4/FP8 only
-    # REMOVED: "awq_marlin": AWQMarlinConfig - DeepSeek R1 uses FP4/FP8 only
-    # REMOVED: "gguf": GGUFConfig - GGUF quantization not supported (kernels not compiled)
     "gptq": GPTQConfig,
     "gptq_marlin": GPTQMarlinConfig,
     "moe_wna16": MoeWNA16Config,

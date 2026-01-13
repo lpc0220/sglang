@@ -25,9 +25,7 @@ class AutoRoundConfig(QuantizationConfig):
 
     SUPPORTED_BITS = {2, 3, 4, 8}
     SUPPORTED_DTYPES = {"int"}
-    # REMOVED: "auto_round:auto_awq" - DeepSeek R1 uses FP4/FP8 only
     SUPPORTED_FORMATS = {"auto_round:auto_gptq"}
-    # REMOVED: "awq", "awq:marlin" - DeepSeek R1 uses FP4/FP8 only
     SUPPORTED_BACKENDS = {"auto", "gptq", "gptq:marlin", "marlin"}
 
     def __init__(
@@ -218,8 +216,6 @@ class AutoRoundConfig(QuantizationConfig):
     def check_quantized(self, weight_bits: int) -> bool:
         return weight_bits < 16
 
-    # REMOVED: apply_awq_quant_layer - DeepSeek R1 uses FP4/FP8 only
-
     def apply_gptq_quant_layer(self, layer, prefix: str, backend: str = "auto"):
         from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
         from sglang.srt.layers.quantization.marlin_utils import (
@@ -309,8 +305,6 @@ class AutoRoundConfig(QuantizationConfig):
         return None
 
     def get_quant_method(self, layer: torch.nn.Module, prefix: str):
-        # NVIDIA CUDA-only: GPTQ backend for AutoRound (AWQ removed)
         if "gptq" in self.packing_format or "gptq" in self.backend:
             return self.apply_gptq_quant_layer(layer, prefix)
-        # REMOVED: AWQ backend - DeepSeek R1 uses FP4/FP8 only
         return None

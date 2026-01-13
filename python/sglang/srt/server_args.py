@@ -60,7 +60,6 @@ from sglang.srt.utils.common import (
     nullable_str,
     parse_connector_type,
     wait_port_available)
-# REMOVED: check_gguf_file - GGUF quantization not supported
 from sglang.utils import is_in_ci
 
 logger = logging.getLogger(__name__)
@@ -74,7 +73,6 @@ LOAD_FORMAT_CHOICES = [
     "npcache",
     "dummy",
     "sharded_state",
-    # REMOVED: "gguf" - GGUF quantization not supported (kernels not compiled)
     "bitsandbytes",
     "layered",
     "flash_rl",
@@ -85,14 +83,11 @@ LOAD_FORMAT_CHOICES = [
 ]
 
 QUANTIZATION_CHOICES = [
-    # REMOVED: "awq" - DeepSeek R1 uses FP4/FP8 only
     "fp8",
     "gptq",
     "marlin",
     "gptq_marlin",
-    # REMOVED: "awq_marlin" - DeepSeek R1 uses FP4/FP8 only
     "bitsandbytes",
-    # REMOVED: "gguf" - GGUF quantization not supported (kernels not compiled)
     "modelopt",
     "modelopt_fp8",
     "modelopt_fp4",
@@ -1564,9 +1559,7 @@ class ServerArgs:
                 )
                 self.page_size = 64
 
-        # Removed fa3, intel_amx, intel_xpu, dual_chunk_flash_attn - NVIDIA GPU only
-
-        # Dual chunk flash attention backend - removed (specialized variant)
+        # Dual chunk flash attention backend not supported
         if (
             getattr(model_config.hf_config, "dual_chunk_attention_config", None)
             is not None
@@ -1595,7 +1588,7 @@ class ServerArgs:
         if is_cuda():
             if (
                 self.prefill_attention_backend_str != self.decode_attention_backend_str
-            ):  # Removed fa4 reference - not supported in NVIDIA-only build
+            ):
                 logger.warning(
                     f"Attention: Using KV4 with PREFILL = {self.prefill_attention_backend_str} "
                     f"and DECODE = {self.decode_attention_backend_str}. "
@@ -1710,8 +1703,6 @@ class ServerArgs:
             logger.warning(
                 f"Mooncake MoE is enabled. The expert parallel size is adjusted to be the same as the tensor parallel size[{self.tp_size}]."
             )
-
-        # Removed ascend_fuseep check - NVIDIA GPU only
 
     def _handle_eplb_and_dispatch(self):
         if self.enable_eplb and (self.expert_distribution_recorder_mode is None):
@@ -1948,12 +1939,6 @@ class ServerArgs:
                 )
 
     def _handle_load_format(self):
-        # REMOVED: GGUF auto-detection - GGUF quantization not supported (kernels not compiled)
-        # if (
-        #     self.load_format == "auto" or self.load_format == "gguf"
-        # ) and check_gguf_file(self.model_path):
-        #     self.quantization = self.load_format = "gguf"
-
         if is_remote_url(self.model_path):
             self.load_format = "remote"
 

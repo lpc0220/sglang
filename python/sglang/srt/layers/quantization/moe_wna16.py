@@ -11,7 +11,6 @@ from sglang.srt.distributed import get_tensor_model_parallel_rank
 from sglang.srt.distributed.parallel_state import get_tp_group
 from sglang.srt.layers.moe import MoeRunner, MoeRunnerBackend, MoeRunnerConfig
 from sglang.srt.layers.moe.moe_runner.triton import TritonMoeQuantInfo
-# REMOVED: AWQConfig - DeepSeek R1 uses FP4/FP8 only
 from sglang.srt.layers.quantization.base_config import (
     FusedMoEMethodBase,
     QuantizationConfig,
@@ -86,9 +85,8 @@ class MoeWNA16Config(QuantizationConfig):
 
         if self.linear_quant_method == "gptq":
             self.use_marlin = GPTQMarlinConfig.is_gptq_marlin_compatible(full_config)
-        # REMOVED: AWQ support - DeepSeek R1 uses FP4/FP8 only
         else:
-            raise ValueError("moe_wna16 only supports gptq (AWQ removed for DeepSeek R1).")
+            raise ValueError("moe_wna16 only supports gptq.")
 
         if modules_to_not_convert is None:
             self.modules_to_not_convert = []
@@ -123,9 +121,8 @@ class MoeWNA16Config(QuantizationConfig):
         if quant_method == "gptq":
             has_zp = not cls.get_from_keys(config, ["sym"])
             modules_to_not_convert = []
-        # REMOVED: AWQ support - DeepSeek R1 uses FP4/FP8 only
         else:
-            raise ValueError("moe_wna16 only supports gptq (AWQ removed for DeepSeek R1).")
+            raise ValueError("moe_wna16 only supports gptq.")
 
         return cls(
             quant_method,
@@ -150,10 +147,7 @@ class MoeWNA16Config(QuantizationConfig):
         num_bits = quant_config.get("bits")
         desc_act = quant_config.get("desc_act")
 
-        # NVIDIA CUDA-only: GPTQ support only (AWQ removed)
         gptq_compatible = quant_method == "gptq" and not desc_act and num_bits in [4, 8]
-        # REMOVED: AWQ compatibility check - DeepSeek R1 uses FP4/FP8 only
-
         return gptq_compatible
 
     def get_quant_method(
@@ -176,9 +170,8 @@ class MoeWNA16Config(QuantizationConfig):
                     return GPTQConfig.from_config(self.full_config).get_quant_method(
                         layer, prefix
                     )
-            # REMOVED: AWQ support - DeepSeek R1 uses FP4/FP8 only
             else:
-                raise ValueError("moe_wna16 only supports gptq (AWQ removed for DeepSeek R1).")
+                raise ValueError("moe_wna16 only supports gptq.")
         elif isinstance(layer, FusedMoE):
             return MoeWNA16Method(self)
         return None
@@ -354,8 +347,6 @@ class MoeWNA16Method(FusedMoEMethodBase):
     @staticmethod
     def get_weight_loader(layer, weight_loader):
 
-        # REMOVED: convert_awq_tensor - DeepSeek R1 uses FP4/FP8 only
-
         def convert_gptq_int4_qzeros(tensor):
             tensor = tensor.view(torch.uint8)
             shifter = torch.tensor([0, 4], dtype=torch.uint8, device=tensor.device)
@@ -382,7 +373,6 @@ class MoeWNA16Method(FusedMoEMethodBase):
             shard_size = layer.intermediate_size_per_partition
 
             # convert gptq weight to a standard format
-            # REMOVED: AWQ support - DeepSeek R1 uses FP4/FP8 only
             if layer.quant_config.linear_quant_method == "gptq":
                 assert layer.quant_config.weight_bits in [4, 8]
                 if "weight" in weight_name:

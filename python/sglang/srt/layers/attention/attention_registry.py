@@ -54,9 +54,6 @@ def create_trtllm_mla_backend(runner):
     return TRTLLMMLABackend(runner)
 
 
-# Removed wave and ascend backends - NVIDIA GPU only
-
-
 @register_attention_backend("nsa")
 def create_nsa_backend(runner):
     from sglang.srt.layers.attention.nsa_backend import NativeSparseAttnBackend
@@ -110,9 +107,6 @@ def create_trtllm_mha_backend(runner):
     from sglang.srt.layers.attention.trtllm_mha_backend import TRTLLMHAAttnBackend
 
     return TRTLLMHAAttnBackend(runner)
-
-
-# Removed dual_chunk_flash_attn backend - NVIDIA GPU only
 
 
 def attn_backend_wrapper(runner: "ModelRunner", full_attn_backend: "AttentionBackend"):

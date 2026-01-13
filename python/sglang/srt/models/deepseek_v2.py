@@ -457,7 +457,6 @@ class DeepseekV2MoE(nn.Module):
             is_packed_weight = hasattr(
                 self.shared_experts.gate_up_proj.quant_method, "quant_config"
             ) and self.shared_experts.gate_up_proj.quant_method.quant_config.get_name() in {
-                # REMOVED: "awq", "awq_marlin" - DeepSeek R1 uses FP4/FP8 only
                 "moe_wna16",
             }
             self.shared_experts_is_int8 = (
@@ -1135,7 +1134,6 @@ class DeepseekV2AttentionMLA(nn.Module):
             has_fused_proj
             and hasattr(self.fused_qkv_a_proj_with_mqa.quant_method, "quant_config")
             and self.fused_qkv_a_proj_with_mqa.quant_method.quant_config.get_name()
-            # REMOVED: "awq", "awq_marlin" - DeepSeek R1 uses FP4/FP8 only
             in {"moe_wna16"}
         )
         self.use_min_latency_fused_a_gemm = (
@@ -3110,7 +3108,6 @@ class DeepseekV2ForCausalLM(nn.Module):
                                     fused_weight = q_a_proj_weight
                                 else:
                                     cat_dim = 0
-                                    # REMOVED: AWQ check - DeepSeek R1 uses FP4/FP8 only
                                     if self.quant_config is not None and (
                                         self.quant_config.get_name() == "moe_wna16"
                                     ):

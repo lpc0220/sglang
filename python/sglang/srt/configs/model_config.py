@@ -689,9 +689,7 @@ class ModelConfig:
     # adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/config.py
     def _verify_quantization(self) -> None:
         supported_quantization = [*QUANTIZATION_METHODS]
-        # REMOVED: ROCm/AMD platform support list - NVIDIA CUDA-only codebase
         rocm_supported_quantization = []  # Not supported
-        # REMOVED: "awq_marlin" - DeepSeek R1 uses FP4/FP8 only
         optimized_quantization_methods = [
             "fp8",
             "marlin",
