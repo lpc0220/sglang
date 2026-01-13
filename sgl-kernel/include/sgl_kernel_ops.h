@@ -952,12 +952,5 @@ torch::Tensor fast_hadamard_transform_40N(torch::Tensor& x, double scale);
 
 /*
  * From csrc/sgl_diffusion/elementwise
+ * REMOVED: timestep_embedding - Used for diffusion models only, not DeepSeek
  */
-torch::Tensor timestep_embedding(
-    const torch::Tensor& t,
-    torch::Tensor& output,
-    int64_t dim,
-    bool flip_sin_to_cos,
-    double downscale_freq_shift,
-    double scale,
-    int64_t max_period);
