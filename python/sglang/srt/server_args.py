@@ -60,7 +60,7 @@ from sglang.srt.utils.common import (
     nullable_str,
     parse_connector_type,
     wait_port_available)
-from sglang.srt.utils.hf_transformers_utils import check_gguf_file
+# REMOVED: check_gguf_file - GGUF quantization not supported
 from sglang.utils import is_in_ci
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ LOAD_FORMAT_CHOICES = [
     "npcache",
     "dummy",
     "sharded_state",
-    "gguf",
+    # REMOVED: "gguf" - GGUF quantization not supported (kernels not compiled)
     "bitsandbytes",
     "layered",
     "flash_rl",
@@ -92,7 +92,7 @@ QUANTIZATION_CHOICES = [
     "gptq_marlin",
     "awq_marlin",
     "bitsandbytes",
-    "gguf",
+    # REMOVED: "gguf" - GGUF quantization not supported (kernels not compiled)
     "modelopt",
     "modelopt_fp8",
     "modelopt_fp4",
@@ -1948,10 +1948,11 @@ class ServerArgs:
                 )
 
     def _handle_load_format(self):
-        if (
-            self.load_format == "auto" or self.load_format == "gguf"
-        ) and check_gguf_file(self.model_path):
-            self.quantization = self.load_format = "gguf"
+        # REMOVED: GGUF auto-detection - GGUF quantization not supported (kernels not compiled)
+        # if (
+        #     self.load_format == "auto" or self.load_format == "gguf"
+        # ) and check_gguf_file(self.model_path):
+        #     self.quantization = self.load_format = "gguf"
 
         if is_remote_url(self.model_path):
             self.load_format = "remote"
@@ -2298,8 +2299,7 @@ class ServerArgs:
             '"npcache" will load the weights in pytorch format and store '
             "a numpy cache to speed up the loading. "
             '"dummy" will initialize the weights with random values, '
-            "which is mainly for profiling."
-            '"gguf" will load the weights in the gguf format. '
+            "which is mainly for profiling. "
             '"bitsandbytes" will load the weights using bitsandbytes '
             "quantization."
             '"layered" loads weights layer by layer so that one can quantize a '
