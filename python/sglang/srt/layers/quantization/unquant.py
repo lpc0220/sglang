@@ -32,9 +32,6 @@ if TYPE_CHECKING:
     )
 
 
-_use_aiter = False
-
-
 class UnquantizedLinearMethod(LinearMethodBase):
     """Linear method without quantization."""
 

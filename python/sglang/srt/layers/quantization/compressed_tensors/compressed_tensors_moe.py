@@ -58,9 +58,6 @@ if TYPE_CHECKING:
 
 _is_cuda = is_cuda()
 
-# ROCm/Aiter support removed - CUDA-only build
-_use_aiter = False
-
 
 logger = logging.getLogger(__name__)
 

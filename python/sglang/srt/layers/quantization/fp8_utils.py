@@ -51,9 +51,6 @@ logger = logging.getLogger(__name__)
 _is_cuda = is_cuda()
 _is_fp8_fnuz = is_fp8_fnuz()
 
-# AITER is AMD-specific, always disabled for NVIDIA CUDA-only build
-_use_aiter = False
-
 if _is_cuda:
     from sgl_kernel import fp8_blockwise_scaled_mm, fp8_scaled_mm
 
@@ -129,7 +126,6 @@ class Fp8GemmRunnerBackend(Enum):
     CUTLASS = "cutlass"
     DEEP_GEMM = "deep_gemm"
     TRITON = "triton"
-    AITER = "aiter"
 
     def is_auto(self) -> bool:
         return self == Fp8GemmRunnerBackend.AUTO
@@ -145,9 +141,6 @@ class Fp8GemmRunnerBackend(Enum):
 
     def is_triton(self) -> bool:
         return self == Fp8GemmRunnerBackend.TRITON
-
-    def is_aiter(self) -> bool:
-        return self == Fp8GemmRunnerBackend.AITER
 
 
 FP8_GEMM_RUNNER_BACKEND: Fp8GemmRunnerBackend | None = None
@@ -200,15 +193,6 @@ def _dispatch_explicit_backend(backend: Fp8GemmRunnerBackend) -> Callable:
             )
         return cutlass_w8a8_block_fp8_linear_with_fallback
 
-    elif backend.is_aiter():
-        if not _use_aiter:
-            raise RuntimeError(
-                "AITER backend requested via --fp8-gemm-backend=aiter, "
-                "but AITER is not available. AITER requires AMD GPUs with "
-                "SGLANG_USE_AITER=1 environment variable set."
-            )
-        return aiter_w8a8_block_fp8_linear
-
     elif backend.is_deep_gemm():
         if not deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM:
             raise RuntimeError(
@@ -231,8 +215,7 @@ def _dispatch_auto_backend() -> Callable:
     # 1. DeepGEMM (if enabled and available)
     # 2. FlashInfer TRTLLM (if Blackwell GPU and FlashInfer available)
     # 3. CUTLASS (if Hopper+ GPU and CUDA 12.0+)
-    # 4. AITER (if AMD GPU with AITER enabled)
-    # 5. Triton (fallback)
+    # 4. Triton (fallback)
 
     if deep_gemm_wrapper.ENABLE_JIT_DEEPGEMM:
         return deepgemm_w8a8_block_fp8_linear_with_fallback
@@ -240,8 +223,6 @@ def _dispatch_auto_backend() -> Callable:
         return flashinfer_gemm_w8a8_block_fp8_linear_with_fallback
     elif _check_cutlass_block_fp8_hardware_support():
         return cutlass_w8a8_block_fp8_linear_with_fallback
-    elif _use_aiter:
-        return aiter_w8a8_block_fp8_linear
     else:
         return triton_w8a8_block_fp8_linear
 
@@ -989,40 +970,16 @@ def apply_fp8_linear(
         # into this sector means use dynamic per-token-per-channel quant
         # per-token scale quant for input matrix, every row(one token) have one scale factor
         # per-channel scale quant for weight matrix, every col(one channel) have one scale factor
-        if _use_aiter:
-            # gemm_a8w8_bpreshuffle(XQ, WQ, x_scale, w_scale, dtype)
-            # XQ -> input tensor, shape = (m, k)
-            # WQ -> weight tensor, shape = (n, k), with preshuffe get better perf
-            # x_scale -> input scale tensor, shape = (m, 1)
-            # w_scale -> weight scale tensor, shape = (n ,1)
-            # dtype -> output dtype
-            output = gemm_a8w8_bpreshuffle(
-                XQ=qinput,
-                WQ=weight.T,
-                x_scale=x_scale,
-                w_scale=weight_scale,
-                dtype=input.dtype,
-            )
-            if bias is not None:
-                output += bias
-            return _process_scaled_mm_output(output, input_2d.shape, output_shape)
-        else:
-            # For now validated on ROCm platform
-            # fp8 rowwise scaling in torch._scaled_mm is introduced in
-            # https://github.com/pytorch/pytorch/pull/144432 using hipBLASLt
-            # and ROCm 6.3, which only exists in torch 2.7 and above.
-            # For CUDA platform please validate if the
-            # torch._scaled_mm support rowwise scaled GEMM
-            # Fused GEMM_DQ Rowwise GEMM
-            output = torch._scaled_mm(
-                qinput,
-                weight,
-                out_dtype=input.dtype,
-                scale_a=x_scale,
-                scale_b=weight_scale.t(),
-                bias=bias,
-            )
-            return _process_scaled_mm_output(output, input_2d.shape, output_shape)
+        # Fused GEMM_DQ Rowwise GEMM
+        output = torch._scaled_mm(
+            qinput,
+            weight,
+            out_dtype=input.dtype,
+            scale_a=x_scale,
+            scale_b=weight_scale.t(),
+            bias=bias,
+        )
+        return _process_scaled_mm_output(output, input_2d.shape, output_shape)
 
     if per_tensor_weights and per_tensor_activations:
         # Fused GEMM_DQ; _scaled_mm with torch.compile requires len(weight_scale.shape) == len(x_scale.shape)

@@ -78,8 +78,6 @@ if TYPE_CHECKING:
 
 _is_cuda = is_cuda()
 _is_fp8_fnuz = is_fp8_fnuz()
-_use_hip_int4 = False
-_use_aiter = False
 
 
 ACTIVATION_SCHEMES = ["static", "dynamic"]
@@ -554,7 +552,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
         from sglang.srt.layers.moe.fused_moe_triton import FusedMoeWeightScaleSupported
 
         if self.quant_config.is_checkpoint_fp8_serialized:
-            params_dtype = torch.uint32 if _use_hip_int4 else torch.float8_e4m3fn
+            params_dtype = torch.float8_e4m3fn
         tp_size = get_tensor_model_parallel_world_size()
         if self.block_quant:
             block_n, block_k = (
@@ -579,45 +577,24 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                     )
 
         # WEIGHTS
-        if False and _use_hip_int4:
-            # INT4 MoE weight - INT32 packed
-            w13_weight = torch.nn.Parameter(
-                torch.empty(
-                    num_experts,
-                    2 * intermediate_size_per_partition,
-                    hidden_size // 8,
-                    dtype=params_dtype,
-                ),
-                requires_grad=False,
-            )
-            w2_weight = torch.nn.Parameter(
-                torch.empty(
-                    num_experts,
-                    hidden_size,
-                    intermediate_size_per_partition // 8,
-                    dtype=params_dtype,
-                ),
-                requires_grad=False,
-            )
-        else:
-            w13_weight = torch.nn.Parameter(
-                torch.empty(
-                    num_experts,
-                    2 * intermediate_size_per_partition,
-                    hidden_size,
-                    dtype=params_dtype,
-                ),
-                requires_grad=False,
-            )
-            w2_weight = torch.nn.Parameter(
-                torch.empty(
-                    num_experts,
-                    hidden_size,
-                    intermediate_size_per_partition,
-                    dtype=params_dtype,
-                ),
-                requires_grad=False,
-            )
+        w13_weight = torch.nn.Parameter(
+            torch.empty(
+                num_experts,
+                2 * intermediate_size_per_partition,
+                hidden_size,
+                dtype=params_dtype,
+            ),
+            requires_grad=False,
+        )
+        w2_weight = torch.nn.Parameter(
+            torch.empty(
+                num_experts,
+                hidden_size,
+                intermediate_size_per_partition,
+                dtype=params_dtype,
+            ),
+            requires_grad=False,
+        )
 
         layer.register_parameter("w13_weight", w13_weight)
         set_weight_attrs(w13_weight, extra_weight_attrs)
@@ -680,13 +657,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             set_weight_attrs(w13_weight_scale, extra_weight_attrs)
             set_weight_attrs(w2_weight_scale, extra_weight_attrs)
 
-            if False and _use_hip_int4:
-                extra_weight_attrs.update(
-                    {"quant_method": FusedMoeWeightScaleSupported.CHANNEL.value}
-                )
-                set_weight_attrs(w13_weight_scale1, extra_weight_attrs)
-                set_weight_attrs(w2_weight_scale1, extra_weight_attrs)
-
         # INPUT_SCALES
         if self.quant_config.activation_scheme == "static":
             if not self.quant_config.is_checkpoint_fp8_serialized:
@@ -712,10 +682,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             layer.w2_input_scale = None
 
     def process_weights_after_loading(self, layer: Module) -> None:
-        if False and _use_hip_int4:
-            self.process_weights_hip_int4(layer)
-            return
-
         # Block quant doesn't need to process weights after loading
         if self.block_quant:
             # If ROCm, normalize the weights and scales to e4m3fnuz
@@ -892,7 +858,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
             return
 
     def process_weights_hip_int4(self, layer: Module):
-        # TODO: _use_aiter: add after triton kernel added
         # INT4-FP8 (INT4 MoE Weight, FP8 Compute)
         # Weight Permutation
         layer.w13_weight = torch.nn.Parameter(
@@ -1180,24 +1145,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
         activation: str = "silu",
         no_combine: bool = False,
     ) -> Optional[torch.Tensor]:
-        topk_weights, topk_ids, _ = topk_output
-        if _use_hip_int4:
-            # TODO: add triton kernel and add check _use_aiter
-            assert not no_combine, f"{no_combine=} is not supported."
-            return fused_moe(
-                x,
-                layer.w13_weight,
-                layer.w2_weight,
-                topk_weights,
-                topk_ids,
-                quant_type=QuantType.per_Token,
-                w1_scale=layer.w13_weight_scale1,
-                w2_scale=layer.w2_weight_scale1,
-                activation=(
-                    ActivationType.Silu if activation == "silu" else ActivationType.Gelu
-                ),
-            )
-
         return None
 
 

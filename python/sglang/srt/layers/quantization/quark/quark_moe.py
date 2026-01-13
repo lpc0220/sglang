@@ -33,8 +33,6 @@ _is_shuffle_moe_mxfp4 = is_gfx95_supported()
 __all__ = ["QuarkMoEMethod", "QuarkW4A4MXFp4MoEMethod"]
 
 _is_fp8_fnuz = is_fp8_fnuz()
-# ROCm/Aiter support removed - CUDA-only build
-_use_aiter = False
 
 OCP_MX_BLOCK_SIZE = 32
 
@@ -442,24 +440,6 @@ class QuarkW8A8FP8MoEMethod(QuarkMoEMethod):
                 f"Unsupported weight quantization strategy: {self.weight_qscheme}."
             )
 
-        if (
-            _use_aiter
-            and self.is_weight_per_channel
-            and self.moe_runner_config.apply_router_weight_on_input
-        ):
-            with torch.no_grad():
-                # Pre-shuffle weights
-                layer.w13_weight = torch.nn.Parameter(
-                    shuffle_weight(layer.w13_weight.data, (16, 16)),
-                    requires_grad=False,
-                )
-                torch.cuda.empty_cache()
-                layer.w2_weight = torch.nn.Parameter(
-                    shuffle_weight(layer.w2_weight.data, (16, 16)),
-                    requires_grad=False,
-                )
-                torch.cuda.empty_cache()
-
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
     ):
@@ -474,42 +454,14 @@ class QuarkW8A8FP8MoEMethod(QuarkMoEMethod):
 
         from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
 
-        x = dispatch_output.hidden_states
-        topk_output = dispatch_output.topk_output
-
-        moe_runner_config = self.moe_runner_config
-
-        if (
-            _use_aiter
-            and self.is_weight_per_channel
-            and moe_runner_config.apply_router_weight_on_input
-        ):
-            topk_weights, topk_ids, _ = topk_output
-            output = rocm_fused_experts_tkw1(
-                hidden_states=x,
-                w1=layer.w13_weight,
-                w2=layer.w2_weight,
-                topk_weights=topk_weights,
-                topk_ids=topk_ids,
-                activation=moe_runner_config.activation,
-                apply_router_weight_on_input=moe_runner_config.apply_router_weight_on_input,
-                use_fp8_w8a8=True,
-                per_channel_quant=self.is_weight_per_channel,
-                w1_scale=layer.w13_weight_scale,
-                w2_scale=layer.w2_weight_scale,
-                a1_scale=layer.w13_input_scale,
-                a2_scale=layer.w2_input_scale,
-            )
-            return StandardCombineInput(hidden_states=output)
-        else:
-            quant_info = TritonMoeQuantInfo(
-                w13_weight=layer.w13_weight,
-                w2_weight=layer.w2_weight,
-                use_fp8_w8a8=True,
-                per_channel_quant=self.is_weight_per_channel,
-                w13_scale=layer.w13_weight_scale,
-                w2_scale=layer.w2_weight_scale,
-                a13_scale=layer.w13_input_scale,
-                a2_scale=layer.w2_input_scale,
-            )
-            return self.runner.run(dispatch_output, quant_info)
+        quant_info = TritonMoeQuantInfo(
+            w13_weight=layer.w13_weight,
+            w2_weight=layer.w2_weight,
+            use_fp8_w8a8=True,
+            per_channel_quant=self.is_weight_per_channel,
+            w13_scale=layer.w13_weight_scale,
+            w2_scale=layer.w2_weight_scale,
+            a13_scale=layer.w13_input_scale,
+            a2_scale=layer.w2_input_scale,
+        )
+        return self.runner.run(dispatch_output, quant_info)

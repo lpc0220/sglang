@@ -29,9 +29,6 @@ from sglang.srt.utils import get_bool_env_var
 
 __all__ = ["CompressedTensorsW8A8Fp8"]
 
-# AITER is AMD-specific, always disabled for NVIDIA CUDA-only build
-_use_aiter = False
-
 
 strategy_to_parameter_type = {
     QuantizationStrategy.BLOCK: BlockQuantScaleParameter,
@@ -172,13 +169,7 @@ class CompressedTensorsW8A8Fp8(CompressedTensorsScheme):
             else:
                 weight_scale = layer.weight_scale.data
 
-            if _use_aiter:
-                # keep the weight as (N, K)
-                layer.weight = Parameter(
-                    shuffle_weight(weight, (16, 16)), requires_grad=False
-                )
-            else:
-                layer.weight = Parameter(weight.t(), requires_grad=False)
+            layer.weight = Parameter(weight.t(), requires_grad=False)
 
             # required by torch.compile to be torch.nn.Parameter
             layer.weight_scale = Parameter(weight_scale, requires_grad=False)
