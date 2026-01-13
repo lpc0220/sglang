@@ -15,7 +15,6 @@ from sglang.srt.layers.quantization.fp8_utils import normalize_e4m3fn_to_e4m3fnu
 from sglang.srt.layers.quantization.utils import all_close_1d, per_tensor_dequantize
 from sglang.srt.utils import (
     get_bool_env_var,
-    is_gfx95_supported,
     set_weight_attrs,
 )
 
@@ -28,7 +27,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_is_shuffle_moe_mxfp4 = is_gfx95_supported()
+# GFX95 is AMD GPU specific - NVIDIA only codebase
+_is_shuffle_moe_mxfp4 = False
 
 __all__ = ["QuarkMoEMethod", "QuarkW4A4MXFp4MoEMethod"]
 

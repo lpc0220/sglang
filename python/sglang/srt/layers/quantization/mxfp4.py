@@ -40,7 +40,6 @@ from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
     is_cuda,
     is_flashinfer_available,
-    is_gfx95_supported,
     is_sm90_supported,
     is_sm100_supported,
     is_triton_kernels_available,
@@ -73,7 +72,8 @@ if TYPE_CHECKING:
         StandardDispatchOutput,
     )
 
-_is_shuffle_moe_mxfp4 = is_gfx95_supported()
+# GFX95 is AMD GPU specific - NVIDIA only codebase
+_is_shuffle_moe_mxfp4 = False
 
 def _swizzle_mxfp4(quant_tensor, scale, num_warps):
     """weight swizzle for mxfp4 moe, used for OAI mxfp4 kernel"""
