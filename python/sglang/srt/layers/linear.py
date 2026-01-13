@@ -45,8 +45,8 @@ logger = logging.getLogger(__name__)
 
 WEIGHT_LOADER_V2_SUPPORTED = [
     "CompressedTensorsLinearMethod",
-    "AWQMarlinLinearMethod",
-    "AWQLinearMethod",
+    # REMOVED: "AWQMarlinLinearMethod" - DeepSeek R1 uses FP4/FP8 only
+    # REMOVED: "AWQLinearMethod" - DeepSeek R1 uses FP4/FP8 only
     "GPTQMarlinLinearMethod",
     "Fp8LinearMethod",
     "BlockInt8LinearMethod",
@@ -58,7 +58,7 @@ WEIGHT_LOADER_V2_SUPPORTED = [
     "FBGEMMFp8LinearMethod",
     "ModelOptFp8LinearMethod",
     "ModelOptFp4LinearMethod",
-    "IPEXAWQLinearMethod",
+    # REMOVED: "IPEXAWQLinearMethod" - Intel IPEX not supported in DeepSeek-only codebase
     "PetitNvFp4LinearMethod",
 ]
 

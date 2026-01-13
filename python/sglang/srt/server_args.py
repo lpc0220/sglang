@@ -85,12 +85,12 @@ LOAD_FORMAT_CHOICES = [
 ]
 
 QUANTIZATION_CHOICES = [
-    "awq",
+    # REMOVED: "awq" - DeepSeek R1 uses FP4/FP8 only
     "fp8",
     "gptq",
     "marlin",
     "gptq_marlin",
-    "awq_marlin",
+    # REMOVED: "awq_marlin" - DeepSeek R1 uses FP4/FP8 only
     "bitsandbytes",
     # REMOVED: "gguf" - GGUF quantization not supported (kernels not compiled)
     "modelopt",
@@ -2394,7 +2394,7 @@ class ServerArgs:
             help="Data type for model weights and activations.\n\n"
             '* "auto" will use FP16 precision for FP32 and FP16 models, and '
             "BF16 precision for BF16 models.\n"
-            '* "half" for FP16. Recommended for AWQ quantization.\n'
+            '* "half" for FP16.\n'
             '* "float16" is the same as "half".\n'
             '* "bfloat16" for a balance between precision and range.\n'
             '* "float" is shorthand for FP32 precision.\n'
@@ -2428,7 +2428,7 @@ class ServerArgs:
             type=str,
             default=ServerArgs.modelopt_quant,
             help="The ModelOpt quantization configuration. "
-            "Supported values: 'fp8', 'int4_awq', 'w4a8_awq', 'nvfp4', 'nvfp4_awq'. "
+            "Supported values: 'fp8', 'nvfp4'."
             "This requires the NVIDIA Model Optimizer library to be installed: pip install nvidia-modelopt")
         parser.add_argument(
             "--modelopt-checkpoint-restore-path",
