@@ -1438,10 +1438,9 @@ def _per_token_group_quant_fp8_hopper_moe_mn_major(
         tl.store(sfa_ptrs, inp_amax / 448.0, mask=coord_m < m)
 
 
-if not _is_cpu:
-    _per_token_group_quant_fp8_hopper_moe_mn_major = fp8_autotune(
-        _per_token_group_quant_fp8_hopper_moe_mn_major
-    )
+_per_token_group_quant_fp8_hopper_moe_mn_major = fp8_autotune(
+    _per_token_group_quant_fp8_hopper_moe_mn_major
+)
 
 
 def per_token_group_quant_fp8_hopper_moe_mn_major(
