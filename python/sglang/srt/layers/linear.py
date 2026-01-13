@@ -228,17 +228,8 @@ class ReplicatedLinear(LinearBase):
         if len(loaded_weight.shape) == 0:
             loaded_weight = loaded_weight.reshape(1)
 
-        # The per-tensor quant-scale must be 1 dimension
-                    ignore_warning = getattr(param, "ignore_warning", False)
-            if not ignore_warning:
-                logger.warning(
-                    "Loading a weight without `output_dim` attribute in "
-                    "MergedColumnParallelLinear, assume the weight is "
-                    "the same for all partitions."
-                )
-
-        assert param_data.shape == loaded_weight.shape
-        param_data.copy_(loaded_weight)
+        assert param.size() == loaded_weight.size()
+        param.data.copy_(loaded_weight)
 
     def _load_fused_module_from_checkpoint(
         self, param: BasevLLMParameter, loaded_weight: torch.Tensor

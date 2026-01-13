@@ -5,8 +5,6 @@ from typing import List, Optional, Tuple
 import torch
 
 from sglang.srt.distributed import get_tp_group
-    EAGLEDraftNpuGraphRunner,
-)
 from sglang.srt.layers.dp_attention import get_attention_tp_group
 from sglang.srt.layers.logits_processor import LogitsProcessorOutput
 from sglang.srt.layers.moe.utils import (

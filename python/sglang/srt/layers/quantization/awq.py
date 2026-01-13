@@ -6,8 +6,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import torch
-    npu_fused_experts,
-)
+
 from sglang.srt.layers.linear import LinearBase, set_weight_attrs
 from sglang.srt.layers.moe import (
     MoeRunner,
@@ -50,7 +49,6 @@ if TYPE_CHECKING:
 from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
-    warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
 
 logger = logging.getLogger(__name__)
 

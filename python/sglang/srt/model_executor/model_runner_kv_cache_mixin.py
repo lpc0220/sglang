@@ -519,30 +519,33 @@ class ModelRunnerKVCacheMixin:
         need_sort = self.server_args.disaggregation_mode in ("decode", "prefill")
         if self.token_to_kv_pool_allocator is None:
             if self.is_hybrid_swa:
-                    self.token_to_kv_pool_allocator = SWATokenToKVPoolAllocator(
-                        self.full_max_total_num_tokens,
-                        self.swa_max_total_num_tokens,
+                self.token_to_kv_pool_allocator = SWATokenToKVPoolAllocator(
+                    self.full_max_total_num_tokens,
+                    self.swa_max_total_num_tokens,
+                    page_size=self.page_size,
+                    dtype=self.kv_cache_dtype,
+                    device=self.device,
+                    kvcache=self.token_to_kv_pool,
+                    need_sort=need_sort,
+                )
+            else:
+                if self.page_size == 1:
+                    self.token_to_kv_pool_allocator = TokenToKVPoolAllocator(
+                        self.max_total_num_tokens,
+                        dtype=self.kv_cache_dtype,
+                        device=self.device,
+                        kvcache=self.token_to_kv_pool,
+                        need_sort=need_sort,
+                    )
+                else:
+                    self.token_to_kv_pool_allocator = PagedTokenToKVPoolAllocator(
+                        self.max_total_num_tokens,
                         page_size=self.page_size,
                         dtype=self.kv_cache_dtype,
                         device=self.device,
                         kvcache=self.token_to_kv_pool,
-                        need_sort=need_sort)
-                else:
-                    if self.page_size == 1:
-                        self.token_to_kv_pool_allocator = TokenToKVPoolAllocator(
-                            self.max_total_num_tokens,
-                            dtype=self.kv_cache_dtype,
-                            device=self.device,
-                            kvcache=self.token_to_kv_pool,
-                            need_sort=need_sort)
-                    else:
-                        self.token_to_kv_pool_allocator = PagedTokenToKVPoolAllocator(
-                            self.max_total_num_tokens,
-                            page_size=self.page_size,
-                            dtype=self.kv_cache_dtype,
-                            device=self.device,
-                            kvcache=self.token_to_kv_pool,
-                            need_sort=need_sort)
+                        need_sort=need_sort,
+                    )
 
         else:
             assert self.is_draft_worker

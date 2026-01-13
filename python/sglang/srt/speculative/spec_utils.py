@@ -31,7 +31,8 @@ if TYPE_CHECKING:
 
 if _is_cuda:
     from sgl_kernel import fast_topk
-el    from sglang.srt.utils.common import fast_topk
+else:
+    from sglang.srt.utils.common import fast_topk
 
 
 logger = logging.getLogger(__name__)

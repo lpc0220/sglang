@@ -58,10 +58,8 @@ if TYPE_CHECKING:
 
 _is_cuda = is_cuda()
 
-
-if _use_aiter:
-        from aiter.fused_moe import fused_moe
-    from aiter.ops.shuffle import shuffle_weight
+# ROCm/Aiter support removed - CUDA-only build
+_use_aiter = False
 
 
 logger = logging.getLogger(__name__)

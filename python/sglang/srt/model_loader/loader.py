@@ -187,13 +187,13 @@ def _get_quantization_config(
         # (yizhang2077) workaround for nvidia/Llama-4-Maverick-17B-128E-Eagle3
         if quant_config is None:
             return None
-                    major, minor = get_device_capability()
 
-            if major is not None and minor is not None:
-                assert 0 <= minor < 10
-                capability = major * 10 + minor
-                if capability < quant_config.get_min_capability():
-                    raise ValueError(
+        major, minor = get_device_capability()
+        if major is not None and minor is not None:
+            assert 0 <= minor < 10
+            capability = major * 10 + minor
+            if capability < quant_config.get_min_capability():
+                raise ValueError(
                         f"The quantization method {model_config.quantization} "
                         "is not supported for the current GPU. "
                         f"Minimum capability: {quant_config.get_min_capability()}. "

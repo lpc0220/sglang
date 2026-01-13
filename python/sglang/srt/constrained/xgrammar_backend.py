@@ -31,10 +31,12 @@ from sglang.srt.constrained.base_grammar_backend import (
     INVALID_GRAMMAR_OBJ,
     BaseGrammarBackend,
     BaseGrammarObject,
-    GrammarStats)
+    GrammarStats,
+)
+from sglang.srt.constrained.triton_ops.bitmask_ops import (
+    apply_token_bitmask_inplace_triton,
+)
 from sglang.srt.constrained.utils import is_legacy_structural_tag
-    from sglang.srt.constrained.triton_ops.bitmask_ops import (
-        apply_token_bitmask_inplace_triton)
 
 
 logger = logging.getLogger(__name__)

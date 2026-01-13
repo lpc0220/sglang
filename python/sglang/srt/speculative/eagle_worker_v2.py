@@ -6,10 +6,6 @@ from typing import List, Optional, Tuple
 import torch
 
 from sglang.srt.environ import envs
-    EAGLEDraftExtendNpuGraphRunner,
-)
-    EAGLEDraftNpuGraphRunner,
-)
 from sglang.srt.layers.attention.triton_backend import TritonMultiStepDraftBackend
 from sglang.srt.layers.moe.utils import (
     speculative_moe_a2a_backend_context,

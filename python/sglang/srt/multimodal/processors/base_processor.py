@@ -317,12 +317,8 @@ class BaseMultimodalProcessor(ABC):
         ):
             if get_global_server_args().rl_on_policy_target is not None:
                 kwargs["device"] = "cpu"
-            el                kwargs["device"] = "cuda"
-            elif processor.__class__.__name__ not in {
-                "Qwen2_5_VLProcessor",
-                "Qwen3VLProcessor",
-            }:
-                kwargs["device"] = "npu"
+            else:
+                kwargs["device"] = "cuda"
         result = processor.__call__(
             text=[input_text],
             padding=True,

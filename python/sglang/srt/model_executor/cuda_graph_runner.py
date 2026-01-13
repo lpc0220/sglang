@@ -150,7 +150,8 @@ def patch_model(
                 mode=os.environ.get(
                     "SGLANG_TORCH_COMPILE_MODE", "max-autotune-no-cudagraphs"
                 ),
-                dynamic=False))
+                dynamic=False,
+            )
         else:
             yield model.forward
     finally:

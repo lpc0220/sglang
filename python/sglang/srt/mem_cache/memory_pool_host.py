@@ -10,27 +10,35 @@ import torch
 
 from sglang.jit_kernel.hicache import can_use_hicache_jit_kernel
 from sglang.jit_kernel.hicache import (
-    transfer_hicache_all_layer as jit_transfer_hicache_all_layer)
+    transfer_hicache_all_layer as jit_transfer_hicache_all_layer,
+)
 from sglang.jit_kernel.hicache import (
-    transfer_hicache_one_layer as jit_transfer_hicache_one_layer)
+    transfer_hicache_one_layer as jit_transfer_hicache_one_layer,
+)
 from sglang.srt.mem_cache.memory_pool import KVCache, MHATokenToKVPool, MLATokenToKVPool
 from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
-    from sgl_kernel.kvcacheio import (
-        transfer_kv_all_layer,
-        transfer_kv_all_layer_direct_lf_pf,
-        transfer_kv_all_layer_lf_pf,
-        transfer_kv_all_layer_lf_ph,
-        transfer_kv_all_layer_mla,
-        transfer_kv_all_layer_mla_lf_pf,
-        transfer_kv_direct,
-        transfer_kv_per_layer,
-        transfer_kv_per_layer_direct_pf_lf,
-        transfer_kv_per_layer_mla,
-        transfer_kv_per_layer_mla_pf_lf,
-        transfer_kv_per_layer_pf_lf,
-        transfer_kv_per_layer_ph_lf)
+
+# NVIDIA CUDA-only: Always import KV cache I/O kernels
+from sgl_kernel.kvcacheio import (
+    transfer_kv_all_layer,
+    transfer_kv_all_layer_direct_lf_pf,
+    transfer_kv_all_layer_lf_pf,
+    transfer_kv_all_layer_lf_ph,
+    transfer_kv_all_layer_mla,
+    transfer_kv_all_layer_mla_lf_pf,
+    transfer_kv_direct,
+    transfer_kv_per_layer,
+    transfer_kv_per_layer_direct_pf_lf,
+    transfer_kv_per_layer_mla,
+    transfer_kv_per_layer_mla_pf_lf,
+    transfer_kv_per_layer_pf_lf,
+    transfer_kv_per_layer_ph_lf,
+)
+
+
+
 def synchronized(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):

@@ -944,11 +944,8 @@ class LogitsProcessor(nn.Module):
             logits = logits[:, : self.config.vocab_size].float()
 
         if self.final_logit_softcapping:
-                            fused_softcap(logits, self.final_logit_softcapping)
-            else:
-                logits = self.final_logit_softcapping * torch.tanh(
-                    logits / self.final_logit_softcapping
-                )
+            # NVIDIA CUDA-only: Use fused softcap kernel
+            fused_softcap(logits, self.final_logit_softcapping)
 
         return logits
 

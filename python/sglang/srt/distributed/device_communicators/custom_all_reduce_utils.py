@@ -295,11 +295,11 @@ def gpu_p2p_access_check(src: int, tgt: int) -> bool:
 def with_nvml_context(fn: Callable[_P, _R]) -> Callable[_P, _R]:
     @wraps(fn)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-                    pynvml.nvmlInit()
-            try:
-                return fn(*args, **kwargs)
-            finally:
-                pynvml.nvmlShutdown()
+        pynvml.nvmlInit()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            pynvml.nvmlShutdown()
 
     return wrapper
 

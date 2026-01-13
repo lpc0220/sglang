@@ -1031,23 +1031,23 @@ def extend_attention_fwd(
         BLOCK_DPE = 0
     BLOCK_DV = triton.next_power_of_2(Lv)
 
-    else:
-        if _is_cuda and CUDA_CAPABILITY[0] >= 9:
-            if Lq <= 256:
-                BLOCK_M, BLOCK_N = (128, 64)
-            else:
-                BLOCK_M, BLOCK_N = (32, 64)
-        elif _is_cuda and CUDA_CAPABILITY[0] >= 8:
-            if Lq <= 128:
-                BLOCK_M, BLOCK_N = (128, 128)
-            elif Lq <= 256:
-                BLOCK_M, BLOCK_N = (64, 64)
-            else:
-                BLOCK_M, BLOCK_N = (32, 64)
+    # CUDA-only hardware optimization
+    if _is_cuda and CUDA_CAPABILITY[0] >= 9:
+        if Lq <= 256:
+            BLOCK_M, BLOCK_N = (128, 64)
         else:
-            BLOCK_M, BLOCK_N = (64, 64) if Lq <= 128 else (32, 32)
+            BLOCK_M, BLOCK_N = (32, 64)
+    elif _is_cuda and CUDA_CAPABILITY[0] >= 8:
+        if Lq <= 128:
+            BLOCK_M, BLOCK_N = (128, 128)
+        elif Lq <= 256:
+            BLOCK_M, BLOCK_N = (64, 64)
+        else:
+            BLOCK_M, BLOCK_N = (32, 64)
+    else:
+        BLOCK_M, BLOCK_N = (64, 64) if Lq <= 128 else (32, 32)
 
-        num_warps = 4 if Lk <= 64 else 8
+    num_warps = 4 if Lk <= 64 else 8
 
     sm_scale = sm_scale or 1.0 / (Lq**0.5)
     batch_size, head_num = b_seq_len.shape[0], q_extend.shape[1]

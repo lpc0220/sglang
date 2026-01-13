@@ -33,12 +33,8 @@ _is_shuffle_moe_mxfp4 = is_gfx95_supported()
 __all__ = ["QuarkMoEMethod", "QuarkW4A4MXFp4MoEMethod"]
 
 _is_fp8_fnuz = is_fp8_fnuz()
-if _use_aiter:
-        from aiter.fused_moe import fused_moe
-    from aiter.ops.shuffle import shuffle_weight
-    from aiter.utility.fp4_utils import e8m0_shuffle
-
-    from sglang.srt.layers.moe.rocm_moe_utils import rocm_fused_experts_tkw1
+# ROCm/Aiter support removed - CUDA-only build
+_use_aiter = False
 
 OCP_MX_BLOCK_SIZE = 32
 

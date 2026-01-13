@@ -58,36 +58,35 @@ def _get_block_sizes_for_extend_attention(Lq: int, Lv: int):
 
     BLOCK_DV = triton.next_power_of_2(Lv)
 
-    # Determine BLOCK_M, BLOCK_N, and num_warps based on hardware
-    else:
-        if _is_cuda and CUDA_CAPABILITY[0] >= 9:
-            # Hopper architecture (H100, etc.)
-            if Lq <= 256:
-                BLOCK_M, BLOCK_N = (128, 64)
+    # Determine BLOCK_M, BLOCK_N, and num_warps based on hardware (CUDA-only)
+    if _is_cuda and CUDA_CAPABILITY[0] >= 9:
+        # Hopper architecture (H100, etc.)
+        if Lq <= 256:
+            BLOCK_M, BLOCK_N = (128, 64)
+        else:
+            BLOCK_M, BLOCK_N = (32, 64)
+    elif _is_cuda and CUDA_CAPABILITY[0] >= 8:
+        # Ampere architecture (A100, etc.)
+        # sm86/sm89 has a much smaller shared memory size (100K) than sm80 (160K)
+        if CUDA_CAPABILITY[1] == 9 or CUDA_CAPABILITY[1] == 6:
+            if Lq <= 128:
+                BLOCK_M, BLOCK_N = (64, 128)
+            elif Lq <= 256:
+                BLOCK_M, BLOCK_N = (64, 64)
+            else:
+                BLOCK_M, BLOCK_N = (32, 32)
+        else:
+            if Lq <= 128:
+                BLOCK_M, BLOCK_N = (128, 128)
+            elif Lq <= 256:
+                BLOCK_M, BLOCK_N = (64, 64)
             else:
                 BLOCK_M, BLOCK_N = (32, 64)
-        elif _is_cuda and CUDA_CAPABILITY[0] >= 8:
-            # Ampere architecture (A100, etc.)
-            # sm86/sm89 has a much smaller shared memory size (100K) than sm80 (160K)
-            if CUDA_CAPABILITY[1] == 9 or CUDA_CAPABILITY[1] == 6:
-                if Lq <= 128:
-                    BLOCK_M, BLOCK_N = (64, 128)
-                elif Lq <= 256:
-                    BLOCK_M, BLOCK_N = (64, 64)
-                else:
-                    BLOCK_M, BLOCK_N = (32, 32)
-            else:
-                if Lq <= 128:
-                    BLOCK_M, BLOCK_N = (128, 128)
-                elif Lq <= 256:
-                    BLOCK_M, BLOCK_N = (64, 64)
-                else:
-                    BLOCK_M, BLOCK_N = (32, 64)
-        else:
-            # Older architectures
-            BLOCK_M, BLOCK_N = (64, 64) if Lq <= 128 else (32, 32)
+    else:
+        # Older architectures
+        BLOCK_M, BLOCK_N = (64, 64) if Lq <= 128 else (32, 32)
 
-        num_warps = 4 if Lq <= 64 else 8
+    num_warps = 4 if Lq <= 64 else 8
 
     return BLOCK_DMODEL, BLOCK_DPE, BLOCK_DV, BLOCK_M, BLOCK_N, num_warps
 
@@ -629,7 +628,8 @@ def extend_attention_fwd(
         IS_CAUSAL=is_causal,
         SKIP_PREFIX_CUSTOM_MASK=SKIP_PREFIX_CUSTOM_MASK,
         HAS_SINK=HAS_SINK,
-        STORE_TRANSPOSE=_num_warps=num_warps,
+        STORE_TRANSPOSE=STORE_TRANSPOSE,
+        num_warps=num_warps,
         num_stages=num_stages,
         **extra_kargs,
     )
