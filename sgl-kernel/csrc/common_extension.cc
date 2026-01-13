@@ -501,9 +501,9 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
 
   /*
    * From csrc/grammar
+   * REMOVED: apply_token_bitmask_inplace_cuda - Implementation not compiled (not in CMakeLists.txt)
+   * Grammar constraints use Triton version instead (see python/sglang/srt/constrained/)
    */
-  m.def("apply_token_bitmask_inplace_cuda(Tensor logits, Tensor bitmask, Tensor? indices=None) -> ()");
-  m.impl("apply_token_bitmask_inplace_cuda", &ApplyTokenBitmaskInplace);
 
   /*
    * From csrc/gemm (QServe)
@@ -520,60 +520,16 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
 
   /*
    * From csrc/quantization/gguf
+   * REMOVED: All GGUF functions - Implementation not compiled (not in CMakeLists.txt)
+   * DeepSeek uses NVIDIA FP4/FP8 quantization, not GGUF (which is for CPU/llama.cpp)
+   * Python wrapper was removed in commit 816de75c7
    */
-  m.def(
-      "ggml_dequantize(Tensor W, int type, SymInt m, SymInt n, ScalarType? "
-      "dtype) -> Tensor");
-  m.impl("ggml_dequantize", torch::kCUDA, &ggml_dequantize);
-
-  m.def(
-      "ggml_mul_mat_vec_a8(Tensor W, Tensor X, int type, SymInt row) "
-      "-> Tensor");
-  m.impl("ggml_mul_mat_vec_a8", torch::kCUDA, &ggml_mul_mat_vec_a8);
-
-  m.def("ggml_mul_mat_a8(Tensor W, Tensor X, int type, SymInt row) -> Tensor");
-  m.impl("ggml_mul_mat_a8", torch::kCUDA, &ggml_mul_mat_a8);
-
-  m.def(
-      "ggml_moe_a8(Tensor X, Tensor W, "
-      "Tensor sorted_token_ids, Tensor expert_ids, Tensor "
-      "num_tokens_post_padded, "
-      "int type, SymInt row, SymInt top_k, SymInt tokens) -> Tensor");
-  m.impl("ggml_moe_a8", torch::kCUDA, &ggml_moe_a8);
-
-  m.def(
-      "ggml_moe_a8_vec(Tensor X, Tensor W, "
-      "Tensor topk_ids, int top_k, "
-      "int type, SymInt row, SymInt tokens) -> Tensor");
-  m.impl("ggml_moe_a8_vec", torch::kCUDA, &ggml_moe_a8_vec);
-
-  m.def("ggml_moe_get_block_size(int type) -> int");
-  m.impl("ggml_moe_get_block_size", torch::kCUDA, &ggml_moe_get_block_size);
 
   /*
    * From csrc/mamba
+   * REMOVED: Mamba functions - Implementation not compiled (not in CMakeLists.txt)
+   * DeepSeek doesn't use Mamba architecture (uses Transformer + MoE + MLA)
    */
-  m.def(
-      "causal_conv1d_update(Tensor! x,"
-      "Tensor! conv_state,"
-      "Tensor! weight,"
-      "Tensor? bias_,"
-      "bool silu_activation,"
-      "Tensor? cache_seqlens_,"
-      "Tensor? conv_state_indices,"
-      "int pad_slot_id) -> ()");
-  m.impl("causal_conv1d_update", torch::kCUDA, &causal_conv1d_update);
-
-  m.def(
-      "causal_conv1d_fwd(Tensor! x, Tensor! weight,"
-      "Tensor? bias_,"
-      "Tensor!? conv_states,"
-      "Tensor? query_start_loc,"
-      "Tensor? cache_indices,"
-      "Tensor? has_initial_state,"
-      "bool silu_activation,"
-      "int pad_slot_id) -> ()");
-  m.impl("causal_conv1d_fwd", torch::kCUDA, &causal_conv1d_fwd);
 
   /*
    * From csrc/expert_sepcialization

@@ -823,8 +823,9 @@ void convert_vertical_slash_indexes_mergehead(
 
 /*
  * From csrc/grammar
+ * REMOVED: ApplyTokenBitmaskInplace - Implementation not compiled
+ * Grammar constraints use Triton version instead
  */
-void ApplyTokenBitmaskInplace(at::Tensor logits, at::Tensor bitmask, at::optional<at::Tensor> indices = at::nullopt);
 
 /*
  * From csrc/gemm (QServe)
@@ -849,29 +850,9 @@ void qserve_w4a8_per_group_gemm(
 
 /*
  * From csrc/quantization/gguf
+ * REMOVED: All GGUF functions - Implementation not compiled
+ * DeepSeek uses NVIDIA FP4/FP8 quantization, not GGUF (CPU/llama.cpp format)
  */
-torch::Tensor
-ggml_dequantize(torch::Tensor W, int64_t type, int64_t m, int64_t n, std::optional<at::ScalarType> const& dtype);
-
-torch::Tensor ggml_mul_mat_vec_a8(torch::Tensor W, torch::Tensor X, int64_t type, int64_t row);
-
-torch::Tensor ggml_mul_mat_a8(torch::Tensor W, torch::Tensor X, int64_t type, int64_t row);
-
-torch::Tensor ggml_moe_a8(
-    torch::Tensor X,
-    torch::Tensor W,
-    torch::Tensor sorted_token_ids,
-    torch::Tensor expert_ids,
-    torch::Tensor num_tokens_post_padded,
-    int64_t type,
-    int64_t row,
-    int64_t top_k,
-    int64_t tokens);
-
-torch::Tensor ggml_moe_a8_vec(
-    torch::Tensor X, torch::Tensor W, torch::Tensor topk_ids, int64_t top_k, int64_t type, int64_t row, int64_t tokens);
-
-int64_t ggml_moe_get_block_size(int64_t type);
 
 /*
  * From csrc/spatial
@@ -880,27 +861,9 @@ std::vector<int64_t> create_greenctx_stream_by_value(int64_t smA, int64_t smB, i
 
 /*
  * From csrc/mamba
+ * REMOVED: Mamba functions - Implementation not compiled
+ * DeepSeek doesn't use Mamba architecture (uses Transformer + MoE + MLA)
  */
-void causal_conv1d_update(
-    const at::Tensor& x,
-    const at::Tensor& conv_state,
-    const at::Tensor& weight,
-    const std::optional<at::Tensor>& bias_,
-    bool silu_activation,
-    const std::optional<at::Tensor>& cache_seqlens_,
-    const std::optional<at::Tensor>& conv_state_indices_,
-    int64_t pad_slot_id);
-
-void causal_conv1d_fwd(
-    const at::Tensor& x,
-    const at::Tensor& weight,
-    const std::optional<at::Tensor>& bias_,
-    const std::optional<at::Tensor>& conv_states,
-    const std::optional<at::Tensor>& query_start_loc,
-    const std::optional<at::Tensor>& cache_indices,
-    const std::optional<at::Tensor>& has_initial_state,
-    bool silu_activation,
-    int64_t pad_slot_id);
 
 /*
  * From csrc/expert_specialization
