@@ -231,6 +231,407 @@ class ReplicatedLinear(LinearBase):
         assert param.size() == loaded_weight.size()
         param.data.copy_(loaded_weight)
 
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        bias = self.bias if not self.skip_bias_add else None
+        assert self.quant_method is not None
+        output = self.quant_method.apply(self, x, bias)
+        output_bias = self.bias if self.skip_bias_add else None
+        return output, output_bias
+
+    def extra_repr(self) -> str:
+        s = f"in_features={self.input_size}"
+        s += f", output_features={self.output_size}"
+        s += f", bias={self.bias is not None}"
+        return s
+
+
+class ColumnParallelLinear(LinearBase):
+    """Linear layer with column parallelism.
+
+    The linear layer is defined as Y = XA + b. A is parallelized along
+    its second dimension as A = [A_1, ..., A_p].
+
+    Args:
+        input_size: first dimension of matrix A.
+        output_size: second dimension of matrix A.
+        bias: If true, add bias.
+        gather_output: If true, call all-gather on output and make Y available
+                       to all GPUs, otherwise, every GPU will have its output
+                       which is Y_i = XA_i
+        skip_bias_add: This was added to enable performance optimizations where
+                       bias can be fused with other element-wise operations. we
+                       skip adding bias but instead return it.
+        params_dtype: Data type for the parameters.
+        quant_config: Quantization configure.
+        output_sizes: list of output sizes packed into one output, like for QKV
+                       the list would be size 3.
+        prefix: The name of the layer in the state dict, including all parents
+                        (e.g. model.layers.0.qkv_proj)
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        bias: bool = True,
+        gather_output: bool = False,
+        skip_bias_add: bool = False,
+        params_dtype: Optional[torch.dtype] = None,
+        quant_config: Optional[QuantizationConfig] = None,
+        output_sizes: Optional[List[int]] = None,
+        prefix: str = "",
+        tp_rank: Optional[int] = None,
+        tp_size: Optional[int] = None,
+        use_presharded_weights: bool = False,
+        skip_block_quant_check: bool = False,
+    ):
+        super().__init__(
+            input_size, output_size, skip_bias_add, params_dtype, quant_config, prefix
+        )
+
+        self.gather_output = gather_output
+        self.use_presharded_weights = use_presharded_weights
+
+        # Divide the weight matrix along the last dimension.
+        if tp_rank is None:
+            tp_rank = get_tensor_model_parallel_rank()
+        if tp_size is None:
+            tp_size = get_tensor_model_parallel_world_size()
+        self.tp_rank, self.tp_size = tp_rank, tp_size
+        assert self.quant_method is not None
+        self.output_size_per_partition = divide(self.output_size, tp_size)
+        self.output_partition_sizes = [self.output_size_per_partition]
+        # If QKV or MergedColumn, use output size of each partition.
+        if hasattr(self, "output_sizes"):
+            self.output_partition_sizes = [
+                divide(output_size, tp_size) for output_size in self.output_sizes
+            ]
+
+        if output_sizes is None:
+            output_sizes = [output_size]
+
+        self.quant_method.create_weights(
+            layer=self,
+            input_size_per_partition=self.input_size,
+            output_partition_sizes=self.output_partition_sizes,
+            input_size=self.input_size,
+            output_size=self.output_size,
+            params_dtype=self.params_dtype,
+            skip_block_quant_check=skip_block_quant_check,
+            weight_loader=(
+                self.weight_loader_v2
+                if self.quant_method.__class__.__name__ in WEIGHT_LOADER_V2_SUPPORTED
+                else self.weight_loader
+            ),
+        )
+        if bias:
+            self.bias = Parameter(
+                torch.empty(self.output_size_per_partition, dtype=params_dtype)
+            )
+            set_weight_attrs(
+                self.bias,
+                {
+                    "output_dim": 0,
+                    "weight_loader": self.weight_loader,
+                },
+            )
+        else:
+            self.register_parameter("bias", None)
+
+    def weight_loader(self, param: Parameter, loaded_weight: torch.Tensor):
+        output_dim = getattr(param, "output_dim", None)
+
+        # Special case for GGUF
+        is_gguf_weight = getattr(param, "is_gguf_weight", False)
+        is_gguf_weight_type = getattr(param, "is_gguf_weight_type", False)
+        if is_gguf_weight_type:
+            param.weight_type = loaded_weight.item()
+
+        # Materialize GGUF UninitializedParameter
+        if is_gguf_weight and isinstance(param, UninitializedParameter):
+            param.materialize(loaded_weight.shape, dtype=loaded_weight.dtype)
+
+        use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
+
+        param_data = param.data
+        # bitsandbytes loads the weights of the specific portion
+        # no need to narrow here
+        if output_dim is not None and not use_bitsandbytes_4bit:
+            shard_size = param_data.shape[output_dim]
+            start_idx = self.tp_rank * shard_size
+
+            # NVIDIA CUDA-only: Use direct tensor narrowing
+            if not self.use_presharded_weights:
+                loaded_weight = loaded_weight.narrow(
+                    output_dim, start_idx, shard_size
+                )
+
+        # Special case for loading scales off disk, which often do not
+        # have a shape (such as in the case of AutoFP8).
+        if len(loaded_weight.shape) == 0:
+            loaded_weight = loaded_weight.reshape(1)
+
+        assert param_data.shape == loaded_weight.shape
+        param_data.copy_(loaded_weight)
+
+    def weight_loader_v2(self, param: Parameter, loaded_weight: torch.Tensor):
+        # Special case for loading scales off disk, which often do not
+        # have a shape (such as in the case of AutoFP8).
+        if len(loaded_weight.shape) == 0:
+            assert loaded_weight.numel() == 1
+            loaded_weight = loaded_weight.reshape(1)
+
+        if isinstance(param, _ColumnvLLMParameter):
+            param.load_column_parallel_weight(
+                loaded_weight,
+                tp_rank=self.tp_rank,
+                use_presharded_weights=self.use_presharded_weights,
+            )
+        else:
+            # FIXME: This branch is needed to load deepseek v3 awq.
+            # However, we should fix this and avoid the branching here.
+            # After QuantizedRL reload, params might still need tp_rank
+            try:
+                param.load_column_parallel_weight(
+                    loaded_weight,
+                    tp_rank=self.tp_rank,
+                    use_presharded_weights=self.use_presharded_weights,
+                )
+            except TypeError:
+                # Fallback for parameters that don't accept additional args
+                param.load_column_parallel_weight(loaded_weight)
+
+    def forward(self, input_):
+        bias = self.bias if not self.skip_bias_add else None
+
+        # Matrix multiply.
+        assert self.quant_method is not None
+        output_parallel = self.quant_method.apply(self, input_, bias)
+        if self.gather_output:
+            # All-gather across the partitions.
+            output = tensor_model_parallel_all_gather(output_parallel)
+        else:
+            output = output_parallel
+        output_bias = self.bias if self.skip_bias_add else None
+        return output, output_bias
+
+    def extra_repr(self) -> str:
+        s = f"in_features={self.input_size}"
+        s += f", output_features={self.output_size_per_partition}"
+        s += f", bias={self.bias is not None}"
+        s += f", tp_size={self.tp_size}"
+        s += f", gather_output={self.gather_output}"
+        return s
+
+
+class MergedColumnParallelLinear(ColumnParallelLinear):
+    """Packed linear layers with column parallelism.
+
+    Similar to ColumnParallelLinear, but the weight matrix is concatenated
+    along the output dimension. When the weight matrix is loaded, the
+    different partitions are sharded separately.
+
+    Args:
+        input_size: input dimension of the linear layer.
+        output_sizes: list of output dimensions of the linear layer.
+        bias: If true, add bias.
+        gather_output: If true, call all-gather on output and make the output
+                       available to all GPUs, otherwise, every GPU will have
+                       its own output.
+        skip_bias_add: This was added to enable performance optimizations where
+                       bias can be fused with other element-wise operations. we
+                       skip adding bias but instead return it.
+        params_dtype: Data type for the parameters.
+        quant_config: Quantization configure.
+        prefix: The name of the layer in the state dict, including all parents
+                        (e.g. model.layers.0.qkv_proj)
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        output_sizes: List[int],
+        bias: bool = True,
+        gather_output: bool = False,
+        skip_bias_add: bool = False,
+        params_dtype: Optional[torch.dtype] = None,
+        quant_config: Optional[QuantizationConfig] = None,
+        prefix: str = "",
+        tp_rank: Optional[int] = None,
+        tp_size: Optional[int] = None,
+        use_presharded_weights: bool = False,
+    ):
+        self.output_sizes = output_sizes
+        if tp_rank is None:
+            tp_rank = get_tensor_model_parallel_rank()
+        if tp_size is None:
+            tp_size = get_tensor_model_parallel_world_size()
+        self.tp_rank, self.tp_size = tp_rank, tp_size
+        assert all(output_size % tp_size == 0 for output_size in output_sizes)
+        self.use_presharded_weights = use_presharded_weights
+        super().__init__(
+            input_size=input_size,
+            output_size=sum(output_sizes),
+            bias=bias,
+            gather_output=gather_output,
+            skip_bias_add=skip_bias_add,
+            params_dtype=params_dtype,
+            quant_config=quant_config,
+            prefix=prefix,
+            tp_rank=tp_rank,
+            tp_size=tp_size,
+            use_presharded_weights=use_presharded_weights,
+        )
+        self.prefix = prefix
+
+    def weight_loader(
+        self,
+        param: Parameter,
+        loaded_weight: torch.Tensor,
+        loaded_shard_id: Optional[int] = None,
+    ):
+
+        # Special case for GGUF
+        # initialize GGUF param after we know the quantize type
+        is_gguf_weight = getattr(param, "is_gguf_weight", False)
+        is_gguf_weight_type = getattr(param, "is_gguf_weight_type", False)
+        if is_gguf_weight_type:
+            param.data[loaded_shard_id].copy_(loaded_weight)
+            param.shard_weight_type[loaded_shard_id] = loaded_weight.item()
+            return
+
+        if is_gguf_weight:
+            output_dim = getattr(param, "output_dim", None)
+            shard_size = loaded_weight.size(output_dim) // self.tp_size
+            start_idx = self.tp_rank * shard_size
+
+            loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
+
+            param.shard_id.append(loaded_shard_id)
+            param.shard_id_map[loaded_shard_id] = len(param.data_container)
+            param.data_container.append(loaded_weight)
+            return
+
+        param_data = param.data
+        output_dim = getattr(param, "output_dim", None)
+        # Special case for AQLM codebooks.
+        is_metadata = getattr(param, "is_metadata", False)
+        # Special case for per-tensor scale to load scalar into fused array.
+        needs_scalar_to_array = getattr(param, "needs_scalar_to_array", False)
+
+        if loaded_shard_id is None:
+            # Loaded weight is already fused on disk (qkv/mlp).
+            if output_dim is None:
+                if needs_scalar_to_array:
+                    param_data, loaded_weight = adjust_scalar_to_fused_array(
+                        param_data, loaded_weight, 0
+                    )
+
+                assert param_data.shape == loaded_weight.shape
+                param_data.copy_(loaded_weight)
+                return
+            current_shard_offset = 0
+            shard_offsets: List[Tuple[int, int, int]] = []
+            for i, output_size in enumerate(self.output_sizes):
+                shard_offsets.append((i, current_shard_offset, output_size))
+                current_shard_offset += output_size
+            packed_dim = getattr(param, "packed_dim", None)
+
+            use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
+
+            for shard_id, shard_offset, shard_size in shard_offsets:
+                # Special case for Quantization.
+                # If quantized, we need to adjust the offset and size to account
+                # for the packing.
+                if packed_dim == output_dim:
+                    shard_size = shard_size // param.pack_factor
+                    shard_offset = shard_offset // param.pack_factor
+                    # Special case for Marlin.
+                    shard_size, shard_offset = adjust_marlin_shard(
+                        param, shard_size, shard_offset
+                    )
+
+                if use_bitsandbytes_4bit:
+                    index = list(itertools.accumulate([0] + self.output_sizes))
+                    orig_offsets = {
+                        str(i): (index[i], size)
+                        for i, size in enumerate(self.output_sizes)
+                    }
+                    orig_offsets["total"] = (self.output_size, 0)
+                    shard_size, shard_offset = adjust_bitsandbytes_4bit_shard(
+                        param, orig_offsets, str(shard_id)
+                    )
+
+                loaded_weight_shard = loaded_weight.narrow(
+                    output_dim, shard_offset, shard_size
+                )
+                self.weight_loader(param, loaded_weight_shard, shard_id)
+            return
+
+        assert loaded_shard_id < len(self.output_sizes)
+        if output_dim is not None:
+            shard_offset = sum(self.output_sizes[:loaded_shard_id]) // self.tp_size
+            shard_size = self.output_sizes[loaded_shard_id] // self.tp_size
+            # Special case for quantization.
+            # If quantized, we need to adjust the offset and size to account
+            # for the packing.
+            packed_dim = getattr(param, "packed_dim", None)
+            if packed_dim == output_dim:
+                shard_size = shard_size // param.pack_factor
+                shard_offset = shard_offset // param.pack_factor
+                # Special case for Marlin.
+                shard_size, shard_offset = adjust_marlin_shard(
+                    param, shard_size, shard_offset
+                )
+
+            use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
+            if use_bitsandbytes_4bit:
+                shard_size = loaded_weight.shape[output_dim]
+                shard_offset = loaded_weight.shape[output_dim] * loaded_shard_id
+
+            param_data = param_data.narrow(output_dim, shard_offset, shard_size)
+            start_idx = self.tp_rank * shard_size
+
+            # NVIDIA CUDA-only: Use direct tensor operations
+            # bitsandbytes loads the weights of the specific portion
+            # no need to narrow here
+            if not use_bitsandbytes_4bit and not self.use_presharded_weights:
+                # Padding for special case like qwen2_5_VL's mlp which is not 8-aligned
+                end_idx = start_idx + shard_size
+                if end_idx > loaded_weight.shape[output_dim]:
+                    loaded_weight = pad_or_narrow_weight(
+                        loaded_weight, output_dim, start_idx, shard_size
+                    )
+                else:
+                    loaded_weight = loaded_weight.narrow(
+                        output_dim, start_idx, shard_size
+                    )
+
+        # Special case for AQLM codebooks.
+        elif is_metadata:
+            # metadata indicates fixed size concatenated along dim 0
+            shard_size = loaded_weight.shape[0]
+            shard_offset = loaded_shard_id * shard_size
+            param_data = param_data.narrow(0, shard_offset, shard_size)
+
+        # Special case for per-tensor scales in fused case.
+        elif needs_scalar_to_array:
+            param_data, loaded_weight = adjust_scalar_to_fused_array(
+                param_data, loaded_weight, loaded_shard_id
+            )
+
+        else:
+            ignore_warning = getattr(param, "ignore_warning", False)
+            if not ignore_warning:
+                logger.warning(
+                    "Loading a weight without `output_dim` attribute in "
+                    "MergedColumnParallelLinear, assume the weight is "
+                    "the same for all partitions."
+                )
+
+        assert param_data.shape == loaded_weight.shape
+        param_data.copy_(loaded_weight)
+
     def _load_fused_module_from_checkpoint(
         self, param: BasevLLMParameter, loaded_weight: torch.Tensor
     ):
@@ -322,7 +723,7 @@ class ReplicatedLinear(LinearBase):
         )
 
 
-class QKVParallelLinear(ColumnParallelLinear):
+class QKVParallelLinear(MergedColumnParallelLinear):
     """Linear layers for the attention's QKV transformation.
 
     Linear layers for the linear transformation of the query, key, and value
