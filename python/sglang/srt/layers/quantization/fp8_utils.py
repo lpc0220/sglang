@@ -51,13 +51,8 @@ logger = logging.getLogger(__name__)
 _is_cuda = is_cuda()
 _is_fp8_fnuz = is_fp8_fnuz()
 
-
-if _use_aiter:
-    import aiter
-
-    #         from aiter.ops.triton.gemm_a8w8_blockscale import gemm_a8w8_blockscale
-
-    aiter_per1x128_quant = get_hip_quant(aiter.QuantType.per_1x128)
+# AITER is AMD-specific, always disabled for NVIDIA CUDA-only build
+_use_aiter = False
 
 if _is_cuda:
     from sgl_kernel import fp8_blockwise_scaled_mm, fp8_scaled_mm

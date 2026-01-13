@@ -23,8 +23,9 @@ from sglang.srt.utils import get_bool_env_var, set_weight_attrs
 __all__ = ["QuarkW8A8Fp8"]
 
 _is_fp8_fnuz = is_fp8_fnuz()
-if _use_aiter:
-    from aiter.ops.shuffle import shuffle_weight
+
+# AITER is AMD-specific, always disabled for NVIDIA CUDA-only build
+_use_aiter = False
 
 
 class QuarkW8A8Fp8(QuarkScheme):

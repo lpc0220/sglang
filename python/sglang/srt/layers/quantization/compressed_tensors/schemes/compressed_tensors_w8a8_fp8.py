@@ -29,8 +29,8 @@ from sglang.srt.utils import get_bool_env_var
 
 __all__ = ["CompressedTensorsW8A8Fp8"]
 
-if _use_aiter:
-    from aiter.ops.shuffle import shuffle_weight
+# AITER is AMD-specific, always disabled for NVIDIA CUDA-only build
+_use_aiter = False
 
 
 strategy_to_parameter_type = {
