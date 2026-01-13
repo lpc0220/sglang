@@ -6,7 +6,7 @@ from typing import Optional
 import torch
 
 from sglang.srt.managers.schedule_batch import ServerArgs
-from sglang.srt.utils import is_cpu, is_cuda
+from sglang.srt.utils import is_cuda
 
 
 @dataclass

@@ -6,14 +6,8 @@ import torch
 
 from sglang.jit_kernel.per_tensor_quant_fp8 import per_tensor_quant_fp8
 
-try:
-    from sglang.srt.utils import is_hip
-
-    _is_hip = is_hip()
-except ImportError:
-    _is_hip = False
-
-fp8_type_ = torch.float8_e4m3fnuz if _is_hip else torch.float8_e4m3fn
+# NVIDIA CUDA only - use float8_e4m3fn
+fp8_type_ = torch.float8_e4m3fn
 
 
 def sglang_scaled_fp8_quant(

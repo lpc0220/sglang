@@ -265,35 +265,10 @@ def support_triton(backend: str) -> bool:
     return backend not in ["torch_native"]
 
 
-# Stub functions for removed platforms (NVIDIA GPU only)
-def is_cpu() -> bool:
-    """Stub function - CPU platform not supported (NVIDIA GPU only)."""
-    return False
-
-
-def is_hip() -> bool:
-    """Stub function - AMD HIP/ROCm not supported (NVIDIA GPU only)."""
-    return False
-
-
-def is_npu() -> bool:
-    """Stub function - Ascend NPU not supported (NVIDIA GPU only)."""
-    return False
-
-
-def is_xpu() -> bool:
-    """Stub function - Intel XPU not supported (NVIDIA GPU only)."""
-    return False
-
-
+# Stub function for removed platform (NVIDIA GPU only) - needed for multi_platform.py
 def cpu_has_amx_support() -> bool:
     """Stub function - Intel AMX not supported (NVIDIA GPU only)."""
     return False
-
-
-def use_intel_amx_backend(module) -> bool:
-    """Stub function - Intel AMX not supported (NVIDIA GPU only)."""
-    return getattr(module, 'use_intel_amx_backend', False)
 
 
 _ENABLE_TORCH_INFERENCE_MODE = get_bool_env_var(

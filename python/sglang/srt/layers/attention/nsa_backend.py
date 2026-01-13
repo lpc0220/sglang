@@ -32,7 +32,7 @@ from sglang.srt.layers.attention.nsa.utils import (
 from sglang.srt.layers.attention.trtllm_mla_backend import _concat_mla_absorb_q_general
 from sglang.srt.layers.dp_attention import get_attention_tp_size
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch, ForwardMode
-from sglang.srt.utils import is_cuda, is_hip
+from sglang.srt.utils import is_cuda
 
 # from sgl_kernel.flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 
@@ -42,22 +42,8 @@ if TYPE_CHECKING:
     from sglang.srt.speculative.spec_info import SpecInput
 
 
-_is_hip = is_hip()
-
-if _is_hip:
-    try:
-        from aiter import (  # noqa: F401
-            flash_attn_varlen_func,
-            mha_batch_prefill_func,
-            paged_attention_ragged,
-        )
-        from aiter.mla import mla_decode_fwd, mla_prefill_fwd  # noqa: F401
-    except ImportError:
-        print(
-            "aiter is AMD specific kernel library. Please make sure aiter is installed on your AMD device."
-        )
-else:
-    from sgl_kernel.flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
+# NVIDIA CUDA only
+from sgl_kernel.flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 
 
 # Reuse this workspace buffer across all NSA backend instances
@@ -296,13 +282,6 @@ class NativeSparseAttnBackend(
         self.enable_auto_select_prefill_impl = self.nsa_prefill_impl == "flashmla_auto"
 
         self._arange_buf = torch.arange(16384, device=self.device, dtype=torch.int32)
-
-        if _is_hip:
-            max_bs = model_runner.req_to_token_pool.size
-
-            self.kv_indptr = torch.zeros(
-                (max_bs + 1,), dtype=torch.int32, device=model_runner.device
-            )
 
         # Speculative decoding
         self.topk = model_runner.server_args.speculative_eagle_topk or 0

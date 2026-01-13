@@ -10,8 +10,6 @@ from collections import OrderedDict, defaultdict
 
 import torch
 
-from sglang.srt.utils import is_hip, is_npu
-
 
 def is_cuda_v2():
     return torch.version.cuda is not None
@@ -233,86 +231,10 @@ class GPUEnv(BaseEnv):
             return {}
 
 
-class HIPEnv(BaseEnv):
-    """Environment checker for ROCm/HIP"""
-
-    def get_info(self):
-        cuda_info = {"ROCM available": torch.cuda.is_available()}
-
-        if cuda_info["ROCM available"]:
-            cuda_info.update(self.get_device_info())
-            cuda_info.update(self._get_cuda_version_info())
-
-        return cuda_info
-
-    def _get_cuda_version_info(self):
-        from torch.utils.cpp_extension import ROCM_HOME as ROCM_HOME
-
-        cuda_info = {"ROCM_HOME": ROCM_HOME}
-
-        if ROCM_HOME and os.path.isdir(ROCM_HOME):
-            cuda_info.update(self._get_hipcc_info())
-            cuda_info.update(self._get_rocm_driver_version())
-
-        return cuda_info
-
-    def _get_hipcc_info(self):
-        from torch.utils.cpp_extension import ROCM_HOME
-
-        try:
-            hipcc = os.path.join(ROCM_HOME, "bin/hipcc")
-            hipcc_output = (
-                subprocess.check_output(f'"{hipcc}" --version', shell=True)
-                .decode("utf-8")
-                .strip()
-            )
-            return {
-                "HIPCC": hipcc_output[
-                    hipcc_output.rfind("HIP version") : hipcc_output.rfind("AMD clang")
-                ].strip()
-            }
-        except subprocess.SubprocessError:
-            return {"HIPCC": "Not Available"}
-
-    def _get_rocm_driver_version(self):
-        try:
-            output = subprocess.check_output(
-                [
-                    "rocm-smi",
-                    "--showdriverversion",
-                    "--csv",
-                ]
-            )
-            versions = set(output.decode().strip().split("\n"))
-            versions.discard("name, value")
-            ver = versions.pop()
-            ver = ver.replace('"Driver version", ', "").replace('"', "")
-
-            return {"ROCM Driver Version": ver}
-        except subprocess.SubprocessError:
-            return {"ROCM Driver Version": "Not Available"}
-
-    def get_topology(self):
-        try:
-            result = subprocess.run(
-                ["rocm-smi", "--showtopotype"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True,
-            )
-            return {
-                "AMD Topology": "\n" + result.stdout if result.returncode == 0 else None
-            }
-        except subprocess.SubprocessError:
-            return {}
-
-
 if __name__ == "__main__":
+    # NVIDIA CUDA only
     if is_cuda_v2():
         env = GPUEnv()
-    elif is_hip():
-        env = HIPEnv()
     else:
-        raise RuntimeError("No supported GPU backend found (CUDA or HIP)")
+        raise RuntimeError("No supported GPU backend found (NVIDIA CUDA required)")
     env.check_env()

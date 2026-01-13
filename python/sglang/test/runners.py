@@ -32,14 +32,10 @@ from transformers import (
 
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.model_loader.ci_weight_validation import ci_validate_and_clean_hf_cache
-from sglang.srt.utils import is_npu, load_image
+from sglang.srt.utils import load_image
 from sglang.srt.utils.hf_transformers_utils import get_tokenizer
 from sglang.test.test_utils import DEFAULT_PORT_FOR_SRT_TEST_RUNNER, calculate_rouge_l
 
-if is_npu():
-    from sglang.srt.hardware_backend.npu.utils import init_npu_backend
-
-    init_npu_backend()
 
 DEFAULT_PROMPTS = [
     "Apple is red. Banana is Yellow. " * 800 + "Apple is",

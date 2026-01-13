@@ -19,10 +19,10 @@ from sglang.srt.distributed.device_communicators.custom_all_reduce_utils import 
 )
 from sglang.srt.distributed.parallel_state import in_the_same_node_as
 from sglang.srt.environ import envs
-from sglang.srt.utils import get_bool_env_var, is_cuda, is_hip, log_info_on_rank0
+from sglang.srt.utils import get_bool_env_var, is_cuda, log_info_on_rank0
 
+# NVIDIA CUDA only
 _is_cuda = is_cuda()
-_is_hip = is_hip()
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +125,8 @@ class CustomAllreduce:
 
         # test nvlink first, this will filter out most of the cases
         # where custom allreduce is not supported
-        # this checks hardware and driver support for NVLink
-        if _is_cuda or _is_hip:
-            full_nvlink = is_full_nvlink(physical_device_ids, world_size)
+        # this checks hardware and driver support for NVLink (NVIDIA CUDA only)
+        full_nvlink = is_full_nvlink(physical_device_ids, world_size)
 
         if world_size > 2 and not full_nvlink:
             logger.warning(
@@ -139,8 +138,7 @@ class CustomAllreduce:
         # test P2P capability, this checks software/cudaruntime support
         # this is expensive to compute at the first time
         # then we cache the result
-        # On AMD GPU, p2p is always enabled between XGMI connected GPUs
-        if not _is_hip and not _can_p2p(rank, world_size):
+        if not _can_p2p(rank, world_size):
             logger.warning(
                 "Custom allreduce is disabled because your platform lacks "
                 "GPU P2P capability or P2P test failed. To silence this "
@@ -153,45 +151,27 @@ class CustomAllreduce:
         self.world_size = world_size
         self.full_nvlink = full_nvlink
 
-        if not _is_hip:
-            # Buffers memory are owned by this Python class and passed to C++.
-            # Meta data composes of two parts: meta data for synchronization and a
-            # temporary buffer for storing intermediate allreduce results.
-            self.meta_ptrs = self.create_shared_buffer(
-                ops.meta_size() + max_size, group=group
-            )
-            # This is a pre-registered IPC buffer. In eager mode, input tensors
-            # are first copied into this buffer before allreduce is performed
-            self.buffer_ptrs = self.create_shared_buffer(max_size, group=group)
-            # This is a buffer for storing the tuples of pointers pointing to
-            # IPC buffers from all ranks. Each registered tuple has size of
-            # 8*world_size bytes where world_size is at most 8. Allocating 8MB
-            # is enough for 131072 such tuples. The largest model I've seen only
-            # needs less than 10000 of registered tuples.
-            self.rank_data = torch.empty(
-                max_size, dtype=torch.uint8, device=self.device
-            )
-            self._ptr = ops.init_custom_ar(
-                self.meta_ptrs, self.rank_data, rank, self.full_nvlink
-            )
-            ops.register_buffer(self._ptr, self.buffer_ptrs)
-        else:
-            # meta data buffers need to be "uncached" for signal on MI200
-            self.meta = ops.allocate_meta_buffer(ops.meta_size() + max_size)
-            self.buffer = torch.empty(max_size, dtype=torch.uint8, device=self.device)
-            handle = ops.get_meta_buffer_ipc_handle(self.meta)
-            shard_data = (
-                bytes(handle),  # ipc handle to base ptr
-                0,  # offset of base ptr
-            )
-            handles, offsets = self._gather_ipc_meta(shard_data)
-            self.rank_data = torch.empty(
-                max_size, dtype=torch.uint8, device=self.device
-            )
-            self._ptr = ops.init_custom_ar(
-                self.meta, self.rank_data, handles, offsets, rank, self.full_nvlink
-            )
-            self.register_buffer(self.buffer)
+        # NVIDIA CUDA only - Buffers memory are owned by this Python class and passed to C++.
+        # Meta data composes of two parts: meta data for synchronization and a
+        # temporary buffer for storing intermediate allreduce results.
+        self.meta_ptrs = self.create_shared_buffer(
+            ops.meta_size() + max_size, group=group
+        )
+        # This is a pre-registered IPC buffer. In eager mode, input tensors
+        # are first copied into this buffer before allreduce is performed
+        self.buffer_ptrs = self.create_shared_buffer(max_size, group=group)
+        # This is a buffer for storing the tuples of pointers pointing to
+        # IPC buffers from all ranks. Each registered tuple has size of
+        # 8*world_size bytes where world_size is at most 8. Allocating 8MB
+        # is enough for 131072 such tuples. The largest model I've seen only
+        # needs less than 10000 of registered tuples.
+        self.rank_data = torch.empty(
+            max_size, dtype=torch.uint8, device=self.device
+        )
+        self._ptr = ops.init_custom_ar(
+            self.meta_ptrs, self.rank_data, rank, self.full_nvlink
+        )
+        ops.register_buffer(self._ptr, self.buffer_ptrs)
 
         self.disabled = False
         self.original_disabled = False  # Ensure original_disabled == disabled
@@ -284,30 +264,25 @@ class CustomAllreduce:
         ops.register_buffer(self._ptr, inp, handles, offsets)
 
     def register_graph_buffers(self):
-        if _is_hip:
-            handle, offset = ops.get_graph_buffer_ipc_meta(self._ptr)
-            handles, offsets = self._gather_ipc_meta((bytes(handle), offset))
-            log_info_on_rank0(logger, f"Registering {len(offset)} cuda graph addresses")
-            ops.register_graph_buffers(self._ptr, handles, offsets)
-        else:
-            handle, offset = ops.get_graph_buffer_ipc_meta(self._ptr)
-            log_info_on_rank0(logger, f"Registering {len(offset)} cuda graph addresses")
-            # We cannot directly use `dist.all_gather_object` here
-            # because it is incompatible with `gloo` backend under inference mode.
-            # see https://github.com/pytorch/pytorch/issues/126032 for details.
-            all_data = [
-                [None, None] for _ in range(dist.get_world_size(group=self.group))
-            ]
-            all_data[self.rank] = [handle, offset]
-            ranks = sorted(dist.get_process_group_ranks(group=self.group))
-            for i, rank in enumerate(ranks):
-                dist.broadcast_object_list(
-                    all_data[i], src=rank, group=self.group, device="cpu"
-                )
-            # Unpack list of tuples to tuple of lists.
-            handles = [d[0] for d in all_data]  # type: ignore
-            offsets = [d[1] for d in all_data]  # type: ignore
-            ops.register_graph_buffers(self._ptr, handles, offsets)
+        # NVIDIA CUDA only
+        handle, offset = ops.get_graph_buffer_ipc_meta(self._ptr)
+        log_info_on_rank0(logger, f"Registering {len(offset)} cuda graph addresses")
+        # We cannot directly use `dist.all_gather_object` here
+        # because it is incompatible with `gloo` backend under inference mode.
+        # see https://github.com/pytorch/pytorch/issues/126032 for details.
+        all_data = [
+            [None, None] for _ in range(dist.get_world_size(group=self.group))
+        ]
+        all_data[self.rank] = [handle, offset]
+        ranks = sorted(dist.get_process_group_ranks(group=self.group))
+        for i, rank in enumerate(ranks):
+            dist.broadcast_object_list(
+                all_data[i], src=rank, group=self.group, device="cpu"
+            )
+        # Unpack list of tuples to tuple of lists.
+        handles = [d[0] for d in all_data]  # type: ignore
+        offsets = [d[1] for d in all_data]  # type: ignore
+        ops.register_graph_buffers(self._ptr, handles, offsets)
 
     def should_custom_ar(self, inp: torch.Tensor):
         if self.disabled:
@@ -320,16 +295,9 @@ class CustomAllreduce:
             return False
         # for 4 or more non NVLink-capable GPUs, custom allreduce provides
         # little performance improvement over NCCL.
-        if not _is_hip:
-            if self.world_size == 2 or self.full_nvlink:
-                return inp_size < self.max_size
-            return False
-
-        if _is_hip:
-            if self.full_nvlink:
-                return inp_size < self.max_size
-            return False
-
+        # NVIDIA CUDA only
+        if self.world_size == 2 or self.full_nvlink:
+            return inp_size < self.max_size
         return False
 
     # all reduce, assuming inp tensor is IPC registered with register_buffer,
@@ -392,32 +360,23 @@ class CustomAllreduce:
         # When custom allreduce is disabled, this will be None.
         if self.disabled or not self.should_custom_ar(input):
             return None
+        # NVIDIA CUDA only
         if self._IS_CAPTURING:
             if torch.cuda.is_current_stream_capturing():
-                if _is_hip:
-                    return self.all_reduce_reg(input)
-                else:
-                    return self.all_reduce(input, registered=not self.tms_cudagraph)
+                return self.all_reduce(input, registered=not self.tms_cudagraph)
             else:
                 # If warm up, mimic the allocation pattern since custom
                 # allreduce is out-of-place.
                 return torch.zeros_like(input)
         else:
-            if _is_hip:
-                # note: outside of cuda graph context,
-                # custom allreduce incurs a cost of cudaMemcpy, which should
-                # be small(<=1% of overall latency) compared to the performance
-                # gains of using custom kernels
-                return self.all_reduce_unreg(input)
-            else:
-                return self.all_reduce(input, registered=False)
+            return self.all_reduce(input, registered=False)
 
     def close(self):
         if not self.disabled and self._ptr:
             ops.dispose(self._ptr)
-            if _is_cuda:
-                self.free_shared_buffer(self.meta_ptrs)
-                self.free_shared_buffer(self.buffer_ptrs)
+            # NVIDIA CUDA only
+            self.free_shared_buffer(self.meta_ptrs)
+            self.free_shared_buffer(self.buffer_ptrs)
             self._ptr = 0
 
     def __del__(self):
@@ -425,55 +384,5 @@ class CustomAllreduce:
 
 
 def dispatch_custom_allreduce():
-    """Return the CustomAllreduce class to use (aiter on ROCm if enabled).
-
-    On AMD with 1-stage AR enabled, use sglang's CustomAllreduce (has deterministic_all_reduce method).
-    Otherwise use AiterCustomAllreduce if available.
-    """
-    if _is_cuda:
-        return CustomAllreduce
-
-    assert _is_hip
-
-    if envs.SGLANG_USE_1STAGE_ALLREDUCE.is_set():
-        if envs.SGLANG_USE_1STAGE_ALLREDUCE.get():
-            logger.debug(
-                "[AR] All-reduce: 1-stage kernel (SGLANG_USE_1STAGE_ALLREDUCE=1)"
-            )
-        else:
-            logger.debug("[AR] All-reduce: default (SGLANG_USE_1STAGE_ALLREDUCE=0)")
-    elif envs.SGLANG_ENABLE_DETERMINISTIC_INFERENCE.get():
-        logger.debug(
-            "[AR] All-reduce: 1-stage kernel (deterministic inference enabled)"
-        )
-    else:
-        logger.debug("[AR] All-reduce: default")
-
-    # Check if 1-stage AR should be used
-    if envs.SGLANG_USE_1STAGE_ALLREDUCE.is_set():
-        use_1stage = envs.SGLANG_USE_1STAGE_ALLREDUCE.get()
-    else:
-        use_1stage = envs.SGLANG_ENABLE_DETERMINISTIC_INFERENCE.get()
-
-    # On AMD with 1-stage AR, use sglang's CustomAllreduce
-    # (AiterCustomAllreduce doesn't have deterministic_all_reduce method)
-    if use_1stage:
-        return CustomAllreduce
-
-    if get_bool_env_var("SGLANG_USE_AITER_AR", default="true"):
-        try:
-            from aiter.dist.device_communicators.custom_all_reduce import (
-                CustomAllreduce as AiterCustomAllreduce,
-            )
-
-            logger.info("[AR] Using AiterCustomAllreduce (AMD default)")
-            return AiterCustomAllreduce
-        except ImportError as e:
-            logger.warning(
-                "[AR] Aiter custom all-reduce not available; "
-                "falling back to sglang CustomAllreduce. Details: %s",
-                e,
-            )
-            return CustomAllreduce
-
+    """Return the CustomAllreduce class to use (NVIDIA CUDA only)."""
     return CustomAllreduce
