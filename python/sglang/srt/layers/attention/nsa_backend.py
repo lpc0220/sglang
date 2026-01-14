@@ -237,7 +237,7 @@ class NSAIndexerMetadata(BaseIndexerMetadata):
             assert False, f"Unsupported {self.topk_transform_method = }"
 
 
-_NSA_IMPL_T: TypeAlias = Literal["flashmla_sparse", "flashmla_kv", "fa3", "tilelang"]
+_NSA_IMPL_T: TypeAlias = Literal["flashmla_sparse", "flashmla_kv", "fa3"]
 
 
 class NativeSparseAttnBackend(
@@ -1239,17 +1239,7 @@ class NativeSparseAttnBackend(
                     page_size=1,
                 )
 
-        if self.nsa_prefill_impl == "tilelang":
-            if q_rope is not None:
-                q_all = _concat_mla_absorb_q_general(q_nope, q_rope)
-            return self._forward_tilelang(
-                q_all=q_all,
-                kv_cache=kv_cache,
-                page_table_1=page_table_1,
-                sm_scale=layer.scaling,
-                v_head_dim=layer.v_head_dim,
-            )
-        elif self.nsa_prefill_impl == "flashmla_sparse":
+        if self.nsa_prefill_impl == "flashmla_sparse":
             if q_rope is not None:
                 q_all = _concat_mla_absorb_q_general(q_nope, q_rope)
 
@@ -1383,16 +1373,6 @@ class NativeSparseAttnBackend(
                 layer=layer,
                 metadata=metadata,
                 page_table_1=page_table_1,
-            )
-        elif self.nsa_decode_impl == "tilelang":
-            if q_rope is not None:
-                q_all = _concat_mla_absorb_q_general(q_nope, q_rope)
-            return self._forward_tilelang(
-                q_all=q_all,
-                kv_cache=kv_cache,
-                page_table_1=page_table_1,
-                sm_scale=layer.scaling,
-                v_head_dim=layer.v_head_dim,
             )
         elif self.nsa_decode_impl == "fa3":
             return self._forward_fa3(
@@ -1621,24 +1601,6 @@ class NativeSparseAttnBackend(
             softmax_scale=layer.scaling,
             causal=causal,
             ver=fa_version,
-        )
-
-    def _forward_tilelang(
-        self,
-        q_all: torch.Tensor,
-        kv_cache: torch.Tensor,
-        v_head_dim: int,
-        page_table_1: torch.Tensor,
-        sm_scale: float,
-    ) -> torch.Tensor:
-        from sglang.srt.layers.attention.nsa.tilelang_kernel import tilelang_sparse_fwd
-
-        return tilelang_sparse_fwd(
-            q=q_all,
-            kv=kv_cache,
-            indices=page_table_1.unsqueeze(1),
-            sm_scale=sm_scale,
-            d_v=v_head_dim,
         )
 
     def _forward_aiter(
