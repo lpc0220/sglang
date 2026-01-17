@@ -445,14 +445,6 @@ class Scheduler(
                     revision=server_args.revision,
                 )
 
-        # DeepSeek-only build: Set think_end_id for reasoning parser
-        if self.server_args.reasoning_parser and self.tokenizer:
-            # DeepSeek-R1 uses </think> as the end token
-            think_end_token = "</think>"
-            self.tokenizer.think_end_id = self.tokenizer.encode(
-                think_end_token, add_special_tokens=False
-            )[0]
-
     def init_moe_gemm_config(self):
         if hasattr(self.model_config.hf_config, "num_experts_per_tok"):
             initialize_moe_config(self.server_args)

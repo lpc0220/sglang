@@ -516,8 +516,6 @@ class ChatCompletionRequest(BaseModel):
     skip_special_tokens: bool = True
     # LoRA removed in DeepSeek-only build
     session_params: Optional[Dict] = None
-    separate_reasoning: bool = True
-    stream_reasoning: bool = True
     chat_template_kwargs: Optional[Dict] = None
 
     # SGLang multimodal tiling controls (extensions)

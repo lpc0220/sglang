@@ -1565,23 +1565,6 @@ class Tool:
 
 
 @dataclass
-class ParseFunctionCallReq(BaseReq):
-    text: str  # The text to parse.
-    tools: List[Tool] = field(
-        default_factory=list
-    )  # A list of available function tools (name, parameters, etc.).
-    tool_call_parser: Optional[str] = (
-        None  # Specify the parser type, e.g. 'deepseekv3', 'deepseekv31', or 'deepseekv32'.
-    )
-
-
-@dataclass
-class SeparateReasoningReqInput(BaseReq):
-    text: str  # The text to parse.
-    reasoning_parser: str  # Specify the parser type, e.g., "deepseek-r1".
-
-
-@dataclass
 class VertexGenerateReqInput(BaseReq):
     instances: List[dict]
     parameters: Optional[dict] = None

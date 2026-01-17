@@ -90,7 +90,6 @@ from sglang.srt.entrypoints.openai.serving_tokenize import (
 )
 from sglang.srt.entrypoints.warmup import execute_warmups
 from sglang.srt.environ import envs
-from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from sglang.srt.managers.io_struct import (
     AbortReq,
     CheckWeightsReqInput,
@@ -104,13 +103,11 @@ from sglang.srt.managers.io_struct import (
     InitWeightsSendGroupForRemoteInstanceReqInput,
     InitWeightsUpdateGroupReqInput,
     OpenSessionReqInput,
-    ParseFunctionCallReq,
     PauseGenerationReqInput,
     ProfileReqInput,
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
     SendWeightsToRemoteInstanceReqInput,
-    SeparateReasoningReqInput,
     SetInternalStateReq,
     SlowDownReqInput,
     UpdateWeightFromDiskReqInput,
@@ -133,7 +130,6 @@ from sglang.srt.managers.tokenizer_manager import ServerStatus, TokenizerManager
 from sglang.srt.model_loader.remote_instance_weight_loader_utils import (
     parse_remote_instance_transfer_engine_info_from_scheduler_infos,
 )
-from sglang.srt.entrypoints.openai.serving_chat import _ReasoningParser
 from sglang.srt.server_args import PortArgs, ServerArgs
 from sglang.srt.tracing.trace import process_tracing_init, trace_set_thread_info
 from sglang.srt.utils import (
@@ -1080,48 +1076,6 @@ async def abort_request(obj: AbortReq, request: Request):
         return Response(status_code=200)
     except Exception as e:
         return _create_error_response(e)
-
-
-@app.post("/parse_function_call")
-async def parse_function_call_request(obj: ParseFunctionCallReq, request: Request):
-    """
-    A native API endpoint to parse function calls from a text.
-    """
-    # 1) Initialize the parser based on the request body
-    parser = FunctionCallParser(tools=obj.tools, tool_call_parser=obj.tool_call_parser)
-
-    # 2) Call the non-stream parsing method (non-stream)
-    normal_text, calls = parser.parse_non_stream(obj.text)
-
-    # 3) Organize the response content
-    response_data = {
-        "normal_text": normal_text,
-        "calls": [
-            call.model_dump() for call in calls
-        ],  # Convert pydantic objects to dictionaries
-    }
-
-    return ORJSONResponse(content=response_data, status_code=200)
-
-
-@app.post("/separate_reasoning")
-async def separate_reasoning_request(obj: SeparateReasoningReqInput, request: Request):
-    """
-    A native API endpoint to separate reasoning from a text.
-    """
-    # 1) Initialize the parser based on the request body
-    parser = _ReasoningParser(model_type=obj.reasoning_parser)
-
-    # 2) Call the non-stream parsing method (non-stream)
-    reasoning_text, normal_text = parser.parse_non_stream(obj.text)
-
-    # 3) Organize the response content
-    response_data = {
-        "reasoning_text": reasoning_text,
-        "text": normal_text,
-    }
-
-    return ORJSONResponse(content=response_data, status_code=200)
 
 
 @app.post("/pause_generation")

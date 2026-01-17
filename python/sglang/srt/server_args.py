@@ -27,9 +27,6 @@ import tempfile
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 from sglang.srt.environ import ToolStrictLevel, envs
-from sglang.srt.function_call.function_call_parser import FunctionCallParser
-
-REASONING_PARSER_CHOICES = ["deepseek-r1"]
 from sglang.srt.utils.common import (
     configure_ipv6,
     get_bool_env_var,
@@ -317,9 +314,6 @@ class ServerArgs:
     completion_template: Optional[str] = None
     file_storage_path: str = "sglang_storage"
     enable_cache_report: bool = False
-    reasoning_parser: Optional[str] = None
-    tool_call_parser: Optional[str] = None
-    tool_server: Optional[str] = None
     sampling_defaults: str = "model"
 
     # Data parallelism
@@ -2351,24 +2345,6 @@ class ServerArgs:
             "--enable-cache-report",
             action="store_true",
             help="Return number of cached tokens in usage.prompt_tokens_details for each openai request.")
-        parser.add_argument(
-            "--reasoning-parser",
-            type=str,
-            choices=REASONING_PARSER_CHOICES,
-            default=ServerArgs.reasoning_parser,
-            help=f"Specify the parser for reasoning models, supported parsers are: {REASONING_PARSER_CHOICES}.")
-        tool_call_parser_choices = list(FunctionCallParser.ToolCallParserEnum.keys())
-        parser.add_argument(
-            "--tool-call-parser",
-            type=str,
-            choices=tool_call_parser_choices,
-            default=ServerArgs.tool_call_parser,
-            help=f"Specify the parser for handling tool-call interactions. Options include: {tool_call_parser_choices}.")
-        parser.add_argument(
-            "--tool-server",
-            type=str,
-            default=None,
-            help="Either 'demo' or a comma-separated list of tool server urls to use for the model. If not specified, no tool server will be used.")
         parser.add_argument(
             "--sampling-defaults",
             type=str,
