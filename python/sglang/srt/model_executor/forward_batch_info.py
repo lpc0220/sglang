@@ -1144,12 +1144,13 @@ def compute_position_triton(
     )
 
     # Launch kernel
-    compute_position_kernel[(batch_size)](
+    compute_position_kernel[(batch_size,)](
         positions,
         extend_start_loc,
         extend_prefix_lens,
         extend_seq_lens,
-        has_prefix)
+        has_prefix,
+    )
 
     return positions, extend_start_loc
 
