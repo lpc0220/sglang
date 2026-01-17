@@ -60,6 +60,9 @@ _is_flashinfer_available = is_flashinfer_available()
 _is_sm90_supported = _is_cuda and is_sm90_supported()
 _is_sm100_supported = _is_cuda and is_sm100_supported()
 
+FUSE_ALLREDUCE_MAX_BATCH_SIZE = 2048
+
+
 class ScatterMode(Enum):
     """
     Suppose we have TP=4, DP=2, enable-dp-attention, and the system handles seq a,b,c,d
