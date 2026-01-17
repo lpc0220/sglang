@@ -1,7 +1,5 @@
 from typing import Dict, Optional, Tuple, Type
 
-from sglang.srt.parser.harmony_parser import HarmonyParser
-
 
 class StreamingParseResult:
     """Result of streaming incremental parsing."""
@@ -148,16 +146,15 @@ class DeepSeekR1Detector(BaseReasoningFormatDetector):
         # https://github.com/sgl-project/sglang/pull/3202#discussion_r1950153599
 
 
-class Qwen3Detector(BaseReasoningFormatDetector):
+class DeepSeekV3Detector(BaseReasoningFormatDetector):
     """
-    Detector for Qwen3 models (e.g., Qwen/Qwen3-235B-A22B).
+    Detector for DeepSeek-V3 model.
     Assumes reasoning format:
       (<think>)*(.*)</think>
 
-    Qwen3 models released before 07/2025 supports switching between thinking mode and normal
-    mode using `enable_thinking` parameter in the request parameter.
-      - enable_thinking=True: "<think>reasoning content</think>The answer is 42."
-      - enable_thinking=False: "The answer is 42." (no thinking tokens)
+    DeepSeek-V3 supports switching between thinking mode and normal mode.
+      - With thinking: "<think>reasoning content</think>The answer is 42."
+      - Without thinking: "The answer is 42." (no thinking tokens)
 
     Args:
         stream_reasoning (bool): If False, accumulates reasoning content until the end tag.
@@ -173,127 +170,10 @@ class Qwen3Detector(BaseReasoningFormatDetector):
         )
 
 
-class KimiDetector(BaseReasoningFormatDetector):
-    """
-    Detector for Kimi Thinking model.
-    Assumes reasoning format:
-      ◁think▷*(.*)◁/think▷
-    Returns all the text before the ◁/think▷ tag as `reasoning_text`
-    and the rest of the text as `normal_text`.
-    """
-
-    def __init__(self, stream_reasoning: bool = True, force_reasoning: bool = False):
-        super().__init__(
-            "◁think▷",
-            "◁/think▷",
-            force_reasoning=False,
-            stream_reasoning=stream_reasoning,
-        )
-
-
-class GptOssDetector(BaseReasoningFormatDetector):
-    """
-    Detector for T4-style reasoning format (GPT-OSS), using the HarmonyParser.
-    """
-
-    def __init__(self, stream_reasoning: bool = True, force_reasoning: bool = True):
-        super().__init__(
-            "<|channel|>analysis<|message|>",
-            "<|end|>",
-            force_reasoning=force_reasoning,
-            stream_reasoning=stream_reasoning,
-        )
-        self.parser = HarmonyParser()
-
-    def detect_and_parse(self, text: str) -> StreamingParseResult:
-        events = self.parser.parse(text)
-        # Flush the buffer for one-shot parsing
-        events += self.parser.parse("")
-
-        reasoning_text = "".join(
-            [e.content for e in events if e.event_type == "reasoning"]
-        )
-        normal_parts = []
-        for e in events:
-            if e.event_type == "normal":
-                normal_parts.append(e.content)
-            elif e.event_type == "tool_call":
-                # Use raw_text to preserve structural markers for function call detector
-                normal_parts.append(e.raw_text if e.raw_text else e.content)
-        normal_text = "".join(normal_parts)
-        # Tool call events preserve raw text with structural markers
-
-        return StreamingParseResult(
-            normal_text=normal_text,
-            reasoning_text=reasoning_text,
-        )
-
-    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:
-        events = self.parser.parse(new_text)
-
-        reasoning_text = "".join(
-            [e.content for e in events if e.event_type == "reasoning"]
-        )
-        normal_parts = []
-        for e in events:
-            if e.event_type == "normal":
-                normal_parts.append(e.content)
-            elif e.event_type == "tool_call":
-                # Use raw_text to preserve structural markers for function call detector
-                normal_parts.append(e.raw_text if e.raw_text else e.content)
-        normal_text = "".join(normal_parts)
-
-        return StreamingParseResult(
-            normal_text=normal_text,
-            reasoning_text=reasoning_text,
-        )
-
-
-class MiniMaxAppendThinkDetector(BaseReasoningFormatDetector):
-    """
-    Append `<think>` token to the beginning of the text.
-    """
-
-    def __init__(self, stream_reasoning: bool = True, force_reasoning: bool = False):
-        # scheduler.py need `reasoning_parser.detector.think_end_token`
-        super().__init__(
-            "<think>",
-            "</think>",
-            force_reasoning=force_reasoning,
-            stream_reasoning=stream_reasoning,
-        )
-        self.is_first_chunk = False
-
-    def parse_streaming_increment(self, new_text: str) -> StreamingParseResult:
-        if not self.is_first_chunk:
-            self.is_first_chunk = True
-            new_text = self.think_start_token + new_text
-        return StreamingParseResult(normal_text=new_text)
-
-    def detect_and_parse(self, text: str) -> StreamingParseResult:
-        return StreamingParseResult(normal_text=self.think_start_token + text)
-
-
-class NanoV3Detector(BaseReasoningFormatDetector):
-    """
-    Detector for NanoV3 model.
-    Uses the same reasoning format as DeepSeek-R1: (<think>)*(.*)</think>
-
-    """
-
-    def __init__(self, stream_reasoning: bool = True, force_reasoning: bool = False):
-        super().__init__(
-            "<think>",
-            "</think>",
-            force_reasoning=force_reasoning,
-            stream_reasoning=stream_reasoning,
-        )
-
-
 class ReasoningParser:
     """
     Parser that handles both streaming and non-streaming scenarios for extracting
-    reasoning content from model outputs.
+    reasoning content from DeepSeek model outputs.
 
     Args:
         model_type (str): Type of model to parse reasoning from
@@ -303,18 +183,7 @@ class ReasoningParser:
 
     DetectorMap: Dict[str, Type[BaseReasoningFormatDetector]] = {
         "deepseek-r1": DeepSeekR1Detector,
-        "deepseek-v3": Qwen3Detector,
-        "glm45": Qwen3Detector,
-        "gpt-oss": GptOssDetector,
-        "kimi": KimiDetector,
-        "kimi_k2": DeepSeekR1Detector,
-        "qwen3": Qwen3Detector,
-        "qwen3-thinking": Qwen3Detector,
-        "minimax": Qwen3Detector,
-        "minimax-append-think": MiniMaxAppendThinkDetector,
-        "step3": DeepSeekR1Detector,
-        "nano_v3": NanoV3Detector,
-        "interns1": Qwen3Detector,
+        "deepseek-v3": DeepSeekV3Detector,
     }
 
     def __init__(
@@ -329,10 +198,6 @@ class ReasoningParser:
         detector_class = self.DetectorMap.get(model_type.lower())
         if not detector_class:
             raise ValueError(f"Unsupported model type: {model_type}")
-
-        # Special cases where we override force_reasoning
-        if model_type.lower() in {"qwen3-thinking", "gpt-oss", "minimax"}:
-            force_reasoning = True
 
         # Only pass force_reasoning if explicitly set, let detectors use their defaults
         kwargs = {"stream_reasoning": stream_reasoning}

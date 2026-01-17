@@ -100,6 +100,7 @@ def generate_completion_prompt(prompt: str, suffix: str, template_name: str) -> 
     return prompt
 
 
+# DeepSeek Coder template
 register_completion_template(
     CompletionTemplate(
         name="deepseek_coder",
@@ -107,26 +108,5 @@ register_completion_template(
         fim_middle_token="<｜fim▁hole｜>",
         fim_end_token="<｜fim▁end｜>",
         fim_position=FimPosition.MIDDLE,
-    )
-)
-
-
-register_completion_template(
-    CompletionTemplate(
-        name="star_coder",
-        fim_begin_token="<fim_prefix>",
-        fim_middle_token="<fim_middle>",
-        fim_end_token="<fim_suffix>",
-        fim_position=FimPosition.END,
-    )
-)
-
-register_completion_template(
-    CompletionTemplate(
-        name="qwen_coder",
-        fim_begin_token="<|fim_prefix|>",
-        fim_middle_token="<|fim_middle|>",
-        fim_end_token="<|fim_suffix|>",
-        fim_position=FimPosition.END,
     )
 )
