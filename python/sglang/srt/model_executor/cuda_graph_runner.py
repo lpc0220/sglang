@@ -254,9 +254,6 @@ class CudaGraphRunner:
 
         self.deepep_adapter = DeepEPCudaGraphRunnerAdapter()
 
-        self.dllm_config = None
-        self.is_dllm = False
-
         # Batch sizes to capture
         self.capture_bs, self.compile_bs = get_batch_sizes_to_capture(model_runner)
         log_info_on_rank0(logger, f"Capture cuda graph bs {self.capture_bs}")
@@ -277,9 +274,6 @@ class CudaGraphRunner:
                 self.num_tokens_per_bs = (
                     self.model_runner.server_args.speculative_num_draft_tokens
                 )
-        elif self.is_dllm:
-            self.capture_forward_mode = ForwardMode.DLLM_EXTEND
-            self.num_tokens_per_bs = self.dllm_config.block_size
 
         # If returning hidden states is enabled, set initial capture hidden mode to full to avoid double-capture on startup
         if model_runner.server_args.enable_return_hidden_states:
@@ -296,8 +290,6 @@ class CudaGraphRunner:
         self.maybe_init_pdmux()
         self.seq_len_fill_value = (
             self.model_runner.attn_backend.get_cuda_graph_seq_len_fill_value()
-            if self.dllm_config is None
-            else self.dllm_config.block_size
         )
 
         self.encoder_len_fill_value = 0
@@ -794,12 +786,8 @@ class CudaGraphRunner:
         output = self.output_buffers[graph_key]
 
         if isinstance(output, LogitsProcessorOutput):
-            if self.is_dllm:
-                next_token_logits = None
-                full_logits = output.full_logits[: self.raw_num_token]
-            else:
-                full_logits = None
-                next_token_logits = output.next_token_logits[: self.raw_num_token]
+            full_logits = None
+            next_token_logits = output.next_token_logits[: self.raw_num_token]
 
             return LogitsProcessorOutput(
                 next_token_logits=next_token_logits,

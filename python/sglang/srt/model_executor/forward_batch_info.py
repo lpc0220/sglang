@@ -89,9 +89,6 @@ class ForwardMode(IntEnum):
     # Split Prefill for PD multiplexing
     SPLIT_PREFILL = auto()
 
-    # Used in diffusion LLM inference
-    DLLM_EXTEND = auto()
-
     def is_prefill(self):
         return self.is_extend()
 
@@ -103,7 +100,6 @@ class ForwardMode(IntEnum):
             or (include_draft_extend_v2 and self == ForwardMode.DRAFT_EXTEND_V2)
             or self == ForwardMode.TARGET_VERIFY
             or self == ForwardMode.SPLIT_PREFILL
-            or self == ForwardMode.DLLM_EXTEND
         )
 
     def is_context_parallel_extend(self, include_draft_extend_v2: bool = False):
@@ -155,7 +151,6 @@ class ForwardMode(IntEnum):
             self == ForwardMode.DECODE
             or self == ForwardMode.TARGET_VERIFY
             or self == ForwardMode.IDLE
-            or self == ForwardMode.DLLM_EXTEND
         )
 
     def is_cpu_graph(self):
@@ -173,9 +168,6 @@ class ForwardMode(IntEnum):
 
     def is_prebuilt(self):
         return self == ForwardMode.PREBUILT
-
-    def is_dllm_extend(self):
-        return self == ForwardMode.DLLM_EXTEND
 
 
 @total_ordering
@@ -469,18 +461,8 @@ class ForwardBatch:
             ret.positions = torch.empty((0), dtype=torch.int64, device=device)
             return ret
 
-        # Override the positions with diffusion LLM or spec_info
-        if batch.dllm_config is not None:
-            block_size = batch.dllm_config.block_size
-            positions_dtype = torch.int32
-            ret.positions = torch.tensor(
-                [
-                    i
-                    for block_offset in batch.dllm_block_offsets
-                    for i in range(block_offset, block_offset + block_size)
-                ],
-                dtype=positions_dtype).to(device, non_blocking=True)
-        elif (
+        # Override the positions with spec_info if available
+        if (
             ret.spec_info is not None
             and getattr(ret.spec_info, "positions", None) is not None
         ):
