@@ -221,6 +221,10 @@ class __ReasoningParser:
         return self._reasoning_content
 
 
+# Alias for imports
+_ReasoningParser = __ReasoningParser
+
+
 def _extract_max_dynamic_patch(request: ChatCompletionRequest):
     img_vals = []
     vid_vals = []
