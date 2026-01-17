@@ -28,14 +28,6 @@ class OpenAIServingBase(ABC):
 
     def __init__(self, tokenizer_manager: TokenizerManager):
         self.tokenizer_manager = tokenizer_manager
-        self.allowed_custom_labels = (
-            set(
-                self.tokenizer_manager.server_args.tokenizer_metrics_allowed_custom_labels
-            )
-            if isinstance(self.tokenizer_manager.server_args, ServerArgs)
-            and self.tokenizer_manager.server_args.tokenizer_metrics_allowed_custom_labels
-            else None
-        )
 
     def _parse_model_parameter(self, model: str) -> Tuple[str, Optional[str]]:
         """Parse 'base-model:adapter-name' syntax to extract LoRA adapter.
@@ -222,35 +214,6 @@ class OpenAIServingBase(ABC):
             code=status_code,
         )
         return json.dumps({"error": error.model_dump()})
-
-    def extract_custom_labels(self, raw_request):
-        if (
-            not self.allowed_custom_labels
-            or not self.tokenizer_manager.server_args.tokenizer_metrics_custom_labels_header
-        ):
-            return None
-
-        custom_labels = None
-        header = (
-            self.tokenizer_manager.server_args.tokenizer_metrics_custom_labels_header
-        )
-        try:
-            raw_labels = (
-                orjson.loads(raw_request.headers.get(header))
-                if raw_request and raw_request.headers.get(header)
-                else None
-            )
-        except json.JSONDecodeError as e:
-            logger.exception(f"Error in request: {e}")
-            raw_labels = None
-
-        if isinstance(raw_labels, dict):
-            custom_labels = {
-                label: value
-                for label, value in raw_labels.items()
-                if label in self.allowed_custom_labels
-            }
-        return custom_labels
 
     def extract_routing_key(self, raw_request):
         if raw_request is None:

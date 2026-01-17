@@ -321,8 +321,6 @@ class ServerArgs:
     tool_call_parser: Optional[str] = None
     tool_server: Optional[str] = None
     sampling_defaults: str = "model"
-    tokenizer_metrics_custom_labels_header: str = "x-custom-labels"
-    tokenizer_metrics_allowed_custom_labels: Optional[List[str]] = None
 
     # Data parallelism
     dp_size: int = 1
@@ -2278,17 +2276,6 @@ class ServerArgs:
             help="Show time cost of custom marks.")
         # Prometheus metrics arguments removed in DeepSeek-only build
         parser.add_argument(
-            "--tokenizer-metrics-custom-labels-header",
-            type=str,
-            default=ServerArgs.tokenizer_metrics_custom_labels_header,
-            help="Specify the HTTP header for passing custom labels for tokenizer metrics.")
-        parser.add_argument(
-            "--tokenizer-metrics-allowed-custom-labels",
-            type=str,
-            nargs="+",
-            default=ServerArgs.tokenizer_metrics_allowed_custom_labels,
-            help="The custom labels allowed for tokenizer metrics.")
-        parser.add_argument(
             "--gc-warning-threshold-secs",
             type=float,
             default=ServerArgs.gc_warning_threshold_secs,
@@ -3563,15 +3550,6 @@ class ServerArgs:
         assert (
             self.schedule_conservativeness >= 0
         ), "schedule_conservativeness must be non-negative"
-
-        # Check metrics labels
-        if (
-            not self.tokenizer_metrics_custom_labels_header
-            and self.tokenizer_metrics_allowed_custom_labels
-        ):
-            raise ValueError(
-                "Please set --tokenizer-metrics-custom-labels-header when setting --tokenizer-metrics-allowed-custom-labels."
-            )
 
         # Check metrics exporters
         if self.export_metrics_to_file and self.export_metrics_to_file_dir is None:

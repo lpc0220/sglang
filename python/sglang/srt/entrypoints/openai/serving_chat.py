@@ -373,9 +373,6 @@ class OpenAIServingChat(OpenAIServingBase):
             else:
                 prompt_kwargs = {"input_ids": processed_messages.prompt_ids}
 
-        # Extract custom labels from raw request headers
-        custom_labels = self.extract_custom_labels(raw_request)
-
         # LoRA removed in DeepSeek-only build
 
         img_max_dynamic_patch, vid_max_dynamic_patch = _extract_max_dynamic_patch(
@@ -404,7 +401,6 @@ class OpenAIServingChat(OpenAIServingBase):
             require_reasoning=self._get_reasoning_from_request(request),
             priority=request.priority,
             routing_key=self.extract_routing_key(raw_request),
-            custom_labels=custom_labels,
             custom_logit_processor=request.custom_logit_processor,
             image_max_dynamic_patch=img_max_dynamic_patch,
             video_max_dynamic_patch=vid_max_dynamic_patch,

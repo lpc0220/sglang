@@ -249,9 +249,6 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
     # Whether to disallow logging for this request (e.g. due to ZDR)
     no_logs: bool = False
 
-    # For custom metric labels
-    custom_labels: Optional[Dict[str, str]] = None
-
     # (Internal) Whether to return bytes for image generation
     return_bytes: bool = False
 
@@ -662,7 +659,6 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
             priority=self.priority,
             extra_key=self.extra_key,
             no_logs=self.no_logs,
-            custom_labels=self.custom_labels,
             return_bytes=self.return_bytes,
             return_entropy=self.return_entropy,
             external_trace_header=self.external_trace_header,
