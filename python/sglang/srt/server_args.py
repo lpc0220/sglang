@@ -324,10 +324,6 @@ class ServerArgs:
     tokenizer_metrics_custom_labels_header: str = "x-custom-labels"
     tokenizer_metrics_allowed_custom_labels: Optional[List[str]] = None
 
-    # Token buckets for metrics
-    prompt_tokens_buckets: Optional[List[str]] = None
-    generation_tokens_buckets: Optional[List[str]] = None
-
     # Data parallelism
     dp_size: int = 1
     load_balance_method: str = "auto"
@@ -2292,23 +2288,6 @@ class ServerArgs:
             nargs="+",
             default=ServerArgs.tokenizer_metrics_allowed_custom_labels,
             help="The custom labels allowed for tokenizer metrics.")
-
-        bucket_rule = (
-            "Supports 3 rule types: 'default' uses predefined buckets; 'tse <middle> <base> <count>' "
-            "generates two sides exponential distributed buckets; 'custom <value1> <value2> ...' uses custom bucket values."
-        )
-        parser.add_argument(
-            "--prompt-tokens-buckets",
-            type=str,
-            nargs="+",
-            default=ServerArgs.prompt_tokens_buckets,
-            help=f"The buckets rule of prompt tokens. {bucket_rule}")
-        parser.add_argument(
-            "--generation-tokens-buckets",
-            type=str,
-            nargs="+",
-            default=ServerArgs.generation_tokens_buckets,
-            help=f"The buckets rule for generation tokens histogram. {bucket_rule}")
         parser.add_argument(
             "--gc-warning-threshold-secs",
             type=float,
@@ -3562,12 +3541,6 @@ class ServerArgs:
                 )
 
         assert self.tokenizer_worker_num > 0, "Tokenizer worker num must >= 1"
-        self.validate_buckets_rule(
-            "--prompt-tokens-buckets", self.prompt_tokens_buckets
-        )
-        self.validate_buckets_rule(
-            "--generation-tokens-buckets", self.generation_tokens_buckets
-        )
 
         # Check scheduling policy
         if self.enable_priority_scheduling:
@@ -3663,54 +3636,6 @@ class ServerArgs:
             "Different tp size is supported only when one tp is multiple of the other. "
             f"decode_tp={decode_tp}, prefill_tp={prefill_tp}"
         )
-
-    def validate_buckets_rule(self, arg_name: str, buckets_rule: List[str]):
-        if not buckets_rule:
-            return
-
-        assert len(buckets_rule) > 0, f"{arg_name} cannot be empty list"
-        rule = buckets_rule[0]
-        assert rule in [
-            "tse",
-            "default",
-            "custom",
-        ], f"Unsupported {arg_name} rule type: '{rule}'. Must be one of: 'tse', 'default', 'custom'"
-
-        if rule == "tse":
-            assert (
-                len(buckets_rule) == 4
-            ), f"{arg_name} TSE rule requires exactly 4 parameters: ['tse', middle, base, count], got {len(buckets_rule)}"
-            try:
-                middle = float(buckets_rule[1])
-                base = float(buckets_rule[2])
-                count = int(buckets_rule[3])
-            except (ValueError, IndexError):
-                assert (
-                    False
-                ), f"{arg_name} TSE rule parameters must be: ['tse', <float:middle>, <float:base>, <int:count>]"
-            assert base > 1, f"{arg_name} TSE base must be larger than 1, got: {base}"
-            assert count > 0, f"{arg_name} TSE count must be positive, got: {count}"
-            assert middle > 0, f"{arg_name} TSE middle must be positive, got: {middle}"
-
-        elif rule == "default":
-            assert (
-                len(buckets_rule) == 1
-            ), f"{arg_name} default rule should only have one parameter: ['default'], got {len(buckets_rule)}"
-
-        elif rule == "custom":
-            assert (
-                len(buckets_rule) >= 2
-            ), f"{arg_name} custom rule requires at least one bucket value: ['custom', value1, ...]"
-            try:
-                bucket_values = [float(x) for x in buckets_rule[1:]]
-            except ValueError:
-                assert False, f"{arg_name} custom rule bucket values must be numeric"
-            assert len(set(bucket_values)) == len(
-                bucket_values
-            ), f"{arg_name} custom rule bucket values should not contain duplicates"
-            assert all(
-                val >= 0 for val in bucket_values
-            ), f"{arg_name} custom rule bucket values should be non-negative"
 
     def adjust_mem_fraction_for_vlm(self, model_config):
         vision_config = getattr(model_config.hf_config, "vision_config", None)
