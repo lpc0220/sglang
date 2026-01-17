@@ -139,6 +139,11 @@ from sglang.srt.weight_sync.tensor_bucket import (
     FlattenedTensorBucket,
     FlattenedTensorMetadata)
 
+# MLA and chunked prefix cache supported backends
+MLA_ATTENTION_BACKENDS = ["flashinfer", "cutlass_mla", "trtllm_mla"]
+CHUNKED_PREFIX_CACHE_SUPPORTED_ATTENTION_BACKENDS = ["flashinfer", "cutlass_mla"]
+
+
 def add_mla_attention_backend(backend_name):
     if backend_name not in MLA_ATTENTION_BACKENDS:
         MLA_ATTENTION_BACKENDS.append(backend_name)
