@@ -93,6 +93,7 @@ from sglang.srt.model_executor.forward_batch_info import (
     ForwardMode,
     PPProxyTensors)
 from sglang.srt.model_executor.hook_manager import register_forward_hooks
+from sglang.srt.model_executor.input_buffers import GraphInputBuffers
 from sglang.srt.model_executor.model_runner_kv_cache_mixin import (
     ModelRunnerKVCacheMixin)
 from sglang.srt.model_executor.piecewise_cuda_graph_runner import (
