@@ -53,7 +53,7 @@ from sglang.srt.entrypoints.openai.protocol import (
     ResponsesResponse,
     UsageInfo,
 )
-from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat
+from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat, _ReasoningParser
 from sglang.srt.entrypoints.openai.tool_server import MCPToolServer, ToolServer
 from sglang.srt.managers.io_struct import GenerateReqInput
 from sglang.srt.utils import random_uuid
@@ -80,6 +80,7 @@ class OpenAIServingResponses(OpenAIServingChat):
         super().__init__(tokenizer_manager, template_manager)
 
         # template_manager is already set by parent class
+        self.reasoning_parser = self.tokenizer_manager.server_args.reasoning_parser
         self.enable_prompt_tokens_details = enable_prompt_tokens_details
         self.enable_force_include_usage = enable_force_include_usage
 
@@ -524,9 +525,31 @@ class OpenAIServingResponses(OpenAIServingChat):
         final_output: Any,
         tokenizer: Any,
     ):
-        content = final_output
+        # Handle reasoning parsing if enabled
+        if self.reasoning_parser:
+            # Use standard reasoning parser (openai maps to T4Detector internally)
+            reasoning_parser = _ReasoningParser(
+                model_type=self.reasoning_parser, stream_reasoning=False
+            )
+            reasoning_content, content = reasoning_parser.parse_non_stream(final_output)
+        else:
+            reasoning_content = None
+            content = final_output
 
         output_items = []
+        if reasoning_content:
+            reasoning_item = ResponseReasoningItem(
+                id=f"rs_{random_uuid()}",
+                type="reasoning",
+                summary=[],
+                content=[
+                    ResponseReasoningTextContent(
+                        type="reasoning_text", text=reasoning_content
+                    ),
+                ],
+                status=None,
+            )
+            output_items.append(reasoning_item)
         if content:
             output_text = ResponseOutputText(
                 text=content,
