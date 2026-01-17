@@ -67,30 +67,41 @@ class UnquantizedLinearMethod(LinearMethodBase):
 
 
 class UnquantizedEmbeddingMethod(QuantizeMethodBase):
-    """Embedding method without quantization.
-
-    This handles the case where no quantization is applied to embedding layers.
-    """
+    """Unquantized method for embeddings."""
 
     def create_weights(
         self,
         layer: torch.nn.Module,
-        *weight_args,
+        input_size_per_partition: int,
+        output_partition_sizes: List[int],
+        input_size: int,
+        output_size: int,
+        params_dtype: torch.dtype,
         **extra_weight_attrs,
     ):
-        # No special weight creation needed for unquantized embeddings
-        pass
+        """Create weights for embedding layer."""
+        weight = Parameter(
+            torch.empty(
+                sum(output_partition_sizes),
+                input_size_per_partition,
+                dtype=params_dtype,
+            ),
+            requires_grad=False,
+        )
+        set_weight_attrs(weight, {"input_dim": 1, "output_dim": 0})
+        layer.register_parameter("weight", weight)
+        set_weight_attrs(weight, extra_weight_attrs)
 
     def apply(
         self,
         layer: torch.nn.Module,
         x: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        return F.embedding(x, layer.weight)
+        return F.linear(x, layer.weight, bias)
 
-    def embedding(self, layer: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
-        """Apply embedding lookup."""
-        return F.embedding(x, layer.weight)
+    def embedding(self, layer: torch.nn.Module, input_: torch.Tensor) -> torch.Tensor:
+        return F.embedding(input_, layer.weight)
 
 
 class UnquantizedFusedMoEMethod(FusedMoEMethodBase, MultiPlatformOp):
