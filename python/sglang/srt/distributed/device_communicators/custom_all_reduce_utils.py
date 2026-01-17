@@ -22,6 +22,10 @@ from sglang.srt.utils import is_cuda
 
 logger = logging.getLogger(__name__)
 
+# Type variables for generic function signatures
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
 _is_cuda = is_cuda()
 
 if _is_cuda:
