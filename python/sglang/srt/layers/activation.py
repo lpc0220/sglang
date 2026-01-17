@@ -53,7 +53,7 @@ class SiluAndMul(MultiPlatformOp):
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         d = x.shape[-1] // 2
-        output_shape = x.shape[:-1] + (d)
+        output_shape = x.shape[:-1] + (d,)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
         silu_and_mul(x, out)
         return out
@@ -66,7 +66,7 @@ class GeluAndMul(MultiPlatformOp):
 
     def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
         d = x.shape[-1] // 2
-        output_shape = x.shape[:-1] + (d)
+        output_shape = x.shape[:-1] + (d,)
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
         if self.approximate == "tanh":
             gelu_tanh_and_mul(x, out)
