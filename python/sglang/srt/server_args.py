@@ -321,6 +321,12 @@ class ServerArgs:
     tool_call_parser: Optional[str] = None
     tool_server: Optional[str] = None
     sampling_defaults: str = "model"
+    tokenizer_metrics_custom_labels_header: str = "x-custom-labels"
+    tokenizer_metrics_allowed_custom_labels: Optional[List[str]] = None
+
+    # Token buckets for metrics
+    prompt_tokens_buckets: Optional[List[str]] = None
+    generation_tokens_buckets: Optional[List[str]] = None
 
     # Data parallelism
     dp_size: int = 1
@@ -2275,6 +2281,34 @@ class ServerArgs:
             action="store_true",
             help="Show time cost of custom marks.")
         # Prometheus metrics arguments removed in DeepSeek-only build
+        parser.add_argument(
+            "--tokenizer-metrics-custom-labels-header",
+            type=str,
+            default=ServerArgs.tokenizer_metrics_custom_labels_header,
+            help="Specify the HTTP header for passing custom labels for tokenizer metrics.")
+        parser.add_argument(
+            "--tokenizer-metrics-allowed-custom-labels",
+            type=str,
+            nargs="+",
+            default=ServerArgs.tokenizer_metrics_allowed_custom_labels,
+            help="The custom labels allowed for tokenizer metrics.")
+
+        bucket_rule = (
+            "Supports 3 rule types: 'default' uses predefined buckets; 'tse <middle> <base> <count>' "
+            "generates two sides exponential distributed buckets; 'custom <value1> <value2> ...' uses custom bucket values."
+        )
+        parser.add_argument(
+            "--prompt-tokens-buckets",
+            type=str,
+            nargs="+",
+            default=ServerArgs.prompt_tokens_buckets,
+            help=f"The buckets rule of prompt tokens. {bucket_rule}")
+        parser.add_argument(
+            "--generation-tokens-buckets",
+            type=str,
+            nargs="+",
+            default=ServerArgs.generation_tokens_buckets,
+            help=f"The buckets rule for generation tokens histogram. {bucket_rule}")
         parser.add_argument(
             "--gc-warning-threshold-secs",
             type=float,
