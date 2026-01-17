@@ -28,6 +28,15 @@ _R = TypeVar("_R")
 
 _is_cuda = is_cuda()
 
+
+def is_weak_contiguous(x: torch.Tensor):
+    """Check if tensor is weakly contiguous (contiguous or transposed contiguous)."""
+    strides = x.stride()
+    sizes = x.shape
+    is_not_transpose = strides[0] == 1 and (strides[1] >= max(1, sizes[0]))
+    is_transpose = strides[1] == 1 and (strides[0] >= max(1, sizes[1]))
+    return is_transpose or is_not_transpose
+
 if _is_cuda:
     try:
         import pynvml
