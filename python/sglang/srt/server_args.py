@@ -26,18 +26,11 @@ import random
 import tempfile
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
-from sglang.srt.connector import ConnectorType
 from sglang.srt.environ import ToolStrictLevel, envs
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
-from sglang.srt.lora.lora_registry import LoRARef
 
-# FLA (Flash Linear Attention) chunk size constant
-# Previously from sglang.srt.layers.attention.fla.chunk_delta_h
-FLA_CHUNK_SIZE = 64
-from sglang.srt.parser.reasoning_parser import ReasoningParser
+REASONING_PARSER_CHOICES = ["deepseek-r1"]
 from sglang.srt.utils.common import (
-    LORA_TARGET_ALL_MODULES,
-    SUPPORTED_LORA_TARGET_MODULES,
     configure_ipv6,
     get_bool_env_var,
     get_device,
@@ -100,7 +93,6 @@ QUANTIZATION_CHOICES = [
     "mxfp4",
     "auto-round",
     "compressed-tensors",  # for Ktransformers
-    "modelslim",  # for NPU
 ]
 
 SPECULATIVE_DRAFT_MODEL_QUANTIZATION_CHOICES = [*QUANTIZATION_CHOICES, "unquant"]
@@ -116,8 +108,6 @@ ATTENTION_BACKEND_CHOICES = [
     "trtllm_mla",
     "trtllm_mha",
 ]
-
-LORA_BACKEND_CHOICES = ["triton", "csgmv", "torch_native"]
 
 DISAGG_TRANSFER_BACKEND_CHOICES = ["mooncake", "nixl", "fake"]
 
@@ -156,11 +146,6 @@ FP8_GEMM_RUNNER_BACKEND_CHOICES = [
     "cutlass",
     "triton",
 ]
-
-MAMBA_SSM_DTYPE_CHOICES = ["float32", "bfloat16"]
-
-MAMBA_SCHEDULER_STRATEGY_CHOICES = ["auto", "no_buffer", "extra_buffer"]
-
 
 # Allow external code to add more choices
 def add_load_format_choices(choices):
@@ -207,10 +192,6 @@ def add_rl_on_policy_target_choices(choices):
     RL_ON_POLICY_TARGET_CHOICES.extend(choices)
 
 
-def add_mamba_ssm_dtype_choices(choices):
-    MAMBA_SSM_DTYPE_CHOICES.extend(choices)
-
-
 @dataclasses.dataclass
 class ServerArgs:
     """
@@ -241,7 +222,6 @@ class ServerArgs:
     host: str = "127.0.0.1"
     port: int = 30000
     fastapi_root_path: str = ""
-    grpc_mode: bool = False
     skip_server_warmup: bool = False
     warmups: Optional[str] = None
     nccl_port: Optional[int] = None
@@ -315,16 +295,7 @@ class ServerArgs:
     log_requests_target: Optional[List[str]] = None
     crash_dump_folder: Optional[str] = None
     show_time_cost: bool = False
-    enable_metrics: bool = False
-    enable_metrics_for_all_schedulers: bool = False
-    tokenizer_metrics_custom_labels_header: str = "x-custom-labels"
-    tokenizer_metrics_allowed_custom_labels: Optional[List[str]] = None
-    bucket_time_to_first_token: Optional[List[float]] = None
-    bucket_inter_token_latency: Optional[List[float]] = None
-    bucket_e2e_request_latency: Optional[List[float]] = None
-    collect_tokens_histogram: bool = False
-    prompt_tokens_buckets: Optional[List[str]] = None
-    generation_tokens_buckets: Optional[List[str]] = None
+    # Prometheus metrics removed in DeepSeek-only build
     gc_warning_threshold_secs: float = 0.0
     decode_log_interval: int = 40
     enable_request_time_stats_logging: bool = False
@@ -361,19 +332,6 @@ class ServerArgs:
     # Model override args in JSON
     json_model_override_args: str = "{}"
     preferred_sampling_params: Optional[str] = None
-
-    # LoRA
-    enable_lora: Optional[bool] = None
-    max_lora_rank: Optional[int] = None
-    lora_target_modules: Optional[Union[set[str], List[str]]] = None
-    lora_paths: Optional[
-        Union[dict[str, str], List[dict[str, str]], List[str], List[LoRARef]]
-    ] = None
-    max_loaded_loras: Optional[int] = None
-    max_loras_per_batch: int = 8
-    lora_eviction_policy: str = "lru"
-    lora_backend: str = "csgmv"
-    max_lora_chunk_size: Optional[int] = 16
 
     # Kernel backend
     attention_backend: Optional[str] = None
@@ -437,13 +395,6 @@ class ServerArgs:
     elastic_ep_backend: Literal[None, "mooncake"] = None
     mooncake_ib_device: Optional[str] = None
 
-    # Mamba cache
-    max_mamba_cache_size: Optional[int] = None
-    mamba_ssm_dtype: str = "float32"
-    mamba_full_memory_ratio: float = 0.9
-    mamba_scheduler_strategy: str = "auto"
-    mamba_track_interval: int = 256
-
     # Hierarchical cache
     enable_hierarchical_cache: bool = False
     hicache_ratio: float = 2.0
@@ -468,10 +419,6 @@ class ServerArgs:
     kt_threadpool_count: Optional[int] = None
     kt_num_gpu_experts: Optional[int] = None
     kt_max_deferred_experts_per_token: Optional[int] = None
-
-    # Diffusion LLM
-    dllm_algorithm: Optional[str] = None
-    dllm_algorithm_config: Optional[str] = None
 
     # Double Sparsity
     enable_double_sparsity: bool = False
@@ -639,11 +586,6 @@ class ServerArgs:
         # Set missing default values.
         self._handle_missing_default_values()
 
-        # Handle device-specific backends.
-        self._handle_hpu_backends()
-        self._handle_cpu_backends()
-        self._handle_npu_backends()
-
         # Get GPU memory capacity, which is a common dependency for several configuration steps.
         gpu_mem = get_device_memory_capacity(self.device)
 
@@ -700,9 +642,6 @@ class ServerArgs:
         # Handle deterministic inference.
         self._handle_deterministic_inference()
 
-        # Handle diffusion LLM inference.
-        self._handle_dllm_inference()
-
         # Handle debug utilities.
         self._handle_debug_utils()
 
@@ -740,13 +679,7 @@ class ServerArgs:
             self.load_balance_method = "follow_bootstrap_room"
 
     def _handle_deprecated_args(self):
-        # Handle deprecated tool call parsers
-        deprecated_tool_call_parsers = {"qwen25": "qwen", "glm45": "glm"}
-        if self.tool_call_parser in deprecated_tool_call_parsers:
-            logger.warning(
-                f"The tool_call_parser '{self.tool_call_parser}' is deprecated. Please use '{deprecated_tool_call_parsers[self.tool_call_parser]}' instead."
-            )
-            self.tool_call_parser = deprecated_tool_call_parsers[self.tool_call_parser]
+        pass
 
     def _handle_prefill_delayer_env_compat(self):
         if envs.SGLANG_SCHEDULER_DECREASE_PREFILL_IDLE.get():
@@ -778,12 +711,6 @@ class ServerArgs:
                     self.tokenizer_path, ignore_patterns=["*.bin", "*.safetensors"]
                 )
 
-        # Mamba scheduler strategy
-        if self.mamba_scheduler_strategy == "auto":
-            # TODO: when extra_buffer is more verified, we can set the default path based on
-            #       [overlap, non-overlap]
-            self.mamba_scheduler_strategy = "no_buffer"
-
         # In speculative scenario:
         # - If `speculative_draft_model_quantization` is specified, the draft model uses this quantization method.
         # - Otherwise, the draft model defaults to the same quantization as the target model.
@@ -791,18 +718,6 @@ class ServerArgs:
             self.speculative_draft_model_quantization = self.quantization
         elif self.speculative_draft_model_quantization == "unquant":
             self.speculative_draft_model_quantization = None
-
-    def _handle_hpu_backends(self):
-        # HPU (Habana) support removed - NVIDIA GPU only
-        pass
-
-    def _handle_cpu_backends(self):
-        # CPU backend support removed - NVIDIA GPU only
-        pass
-
-    def _handle_npu_backends(self):
-        # NPU (Ascend) support removed - NVIDIA GPU only
-        pass
 
     def _handle_gpu_memory_settings(self, gpu_mem):
         """
@@ -1017,22 +932,18 @@ class ServerArgs:
     def _handle_model_specific_adjustments(self):
         from sglang.srt.configs.model_config import is_deepseek_nsa
 
-        if parse_connector_type(self.model_path) == ConnectorType.INSTANCE:
-            return
+        # parse_connector_type returns empty string for local paths
+        if parse_connector_type(self.model_path) == "instance":
+            raise NotImplementedError(
+                "Remote instance loading removed in DeepSeek-only build. "
+                "Use local model path instead."
+            )
 
         hf_config = self.get_model_config().hf_config
         model_arch = hf_config.architectures[0]
 
         if model_arch in [
-            "MistralLarge3ForCausalLM",
-            "PixtralForConditionalGeneration",
-        ]:
-            self.dtype = "bfloat16"
-
-        if model_arch in [
             "DeepseekV3ForCausalLM",
-            "MistralLarge3ForCausalLM",
-            "PixtralForConditionalGeneration",
         ]:
             # Set attention backend for DeepSeek
             if is_deepseek_nsa(hf_config):  # DeepSeek 3.2 with DSA
@@ -1107,316 +1018,13 @@ class ServerArgs:
                             "Use triton fused moe by default for bf16 nextn layer in deepseek fp4 checkpoint."
                         )
 
-        elif model_arch in ["GptOssForCausalLM"]:
-            # Set attention backend for GPT-OSS
-            if self.is_attention_backend_not_set():
-                if is_sm100_supported():
-                    self.attention_backend = "trtllm_mha"
-                elif is_sm90_supported():
-                    self.attention_backend = "triton"
-                else:
-                    self.attention_backend = "triton"
-
-            supported_backends = ["triton", "trtllm_mha"]
-            prefill_attn_backend, decode_attn_backend = self.get_attention_backends()
-            assert (
-                prefill_attn_backend in supported_backends
-                and decode_attn_backend in supported_backends
-            ), (
-                f"GptOssForCausalLM requires one of {supported_backends} attention backend, but got the following backends\n"
-                f"- Prefill: {prefill_attn_backend}\n"
-                f"- Decode: {decode_attn_backend}\n"
-            )
-
-            quantization_config = getattr(hf_config, "quantization_config", None)
-            is_mxfp4_quant_format = (
-                quantization_config is not None
-                and quantization_config.get("quant_method") == "mxfp4"
-            )
-            if is_mxfp4_quant_format:
-                # use bf16 for mxfp4 triton kernels
-                self.dtype = "bfloat16"
-
-            if self.moe_runner_backend == "auto":
-                if self.enable_piecewise_cuda_graph:
-                    self.moe_runner_backend = "auto"
-                    logger.warning(
-                        "Enable piecewise CUDA graph, enabling auto MOE kernel."
-                    )
-                elif is_blackwell_supported() and is_mxfp4_quant_format:
-                    self.moe_runner_backend = "flashinfer_mxfp4"
-                    logger.warning(
-                        "Detected SM100 and MXFP4 quantization format for GPT-OSS model, enabling FlashInfer MXFP4 MOE kernel."
-                    )
-                elif self.ep_size == 1 and is_triton_kernels_available():
-                    self.moe_runner_backend = "triton_kernel"
-                    logger.warning(
-                        "Detected GPT-OSS model, enabling triton_kernels MOE kernel."
-                    )
-
-            if self.moe_runner_backend == "triton_kernel":
-                assert (
-                    self.ep_size == 1
-                ), "Triton kernel MoE is only supported when ep_size == 1"
-            self.disable_hybrid_swa_memory = True
-
-        elif "MiMoV2FlashForCausalLM" in model_arch:
-            if self.speculative_algorithm == "EAGLE":
-                self.enable_multi_layer_eagle = True
-                logger.info(
-                    "Enable multi-layer EAGLE speculative decoding for MiMoV2FlashForCausalLM model."
-                )
-                if not envs.SGLANG_ENABLE_SPEC_V2.get():
-                    envs.SGLANG_ENABLE_SPEC_V2.set(True)
-                    logger.warning(
-                        "Spec v2 is enabled for multi-layer EAGLE speculative decoding."
-                    )
-
-            if self.enable_hierarchical_cache:
-                self.swa_full_tokens_ratio = 1.0
-                logger.warning(
-                    "Reset swa_full_tokens_ratio to 1.0 for MiMoV2FlashForCausalLM model with hierarchical cache"
-                )
-                self.disable_hybrid_swa_memory = True
-                logger.warning(
-                    "Disable hybrid SWA memory for MiMoV2FlashForCausalLM model with hierarchical cache"
-                )
-        elif "Llama4" in model_arch and self.device != "cpu":
-            # Auto-select attention backend for Llama4 if not specified
-            if self.attention_backend is None:
-                if is_sm100_supported():
-                    self.attention_backend, platform = "trtllm_mha", "sm100"
-                elif is_sm90_supported():
-                    self.attention_backend, platform = "triton", "sm90"
-                else:
-                    self.attention_backend, platform = "triton", "other platforms"
-                logger.warning(
-                    f"Use {self.attention_backend} as attention backend on {platform} for Llama4 model"
-                )
-            assert self.attention_backend in {
-                "triton",
-                "trtllm_mha",
-            }, f"triton or trtllm_mha is required for Llama4 model but got {self.attention_backend}"
-            if is_sm100_supported() and self.moe_runner_backend == "auto":
-                if self.quantization in {"fp8", "modelopt_fp8"}:
-                    self.moe_runner_backend = "flashinfer_trtllm"
-                    logger.info(
-                        "Use flashinfer_trtllm as MoE runner backend on SM100 for Llama4"
-                    )
-        elif model_arch in [
-            "Gemma2ForCausalLM",
-            "Gemma3ForCausalLM",
-            "Gemma3ForConditionalGeneration",
-            "Gemma3nForCausalLM",
-            "Gemma3nForConditionalGeneration",
-        ]:
-            # FIXME: https://github.com/sgl-project/sglang/pull/7367 is not compatible with gemma2 model.
-            # It failed at this test: https://github.com/sgl-project/sglang/actions/runs/16255155597/job/45890331952#step:4:736
-            logger.warning(
-                f"Disable hybrid SWA memory for {model_arch} as it is not yet supported."
-            )
-            self.disable_hybrid_swa_memory = True
-        elif model_arch in ["Olmo2ForCausalLM"]:
-            # FIXME: https://github.com/sgl-project/sglang/pull/7367 is not compatible with Olmo3 model.
-            logger.warning(
-                f"Disabling hybrid SWA memory for {model_arch} as it is not yet supported."
-            )
-            self.disable_hybrid_swa_memory = True
-
-            if self.attention_backend is None:
-                if is_cuda() and is_sm100_supported():
-                    self.attention_backend = "trtllm_mha"
-                elif is_cuda() and get_device_sm() >= 80:
-                    self.attention_backend = "triton"
-                else:
-                    self.attention_backend = "triton"
-
-            # Flashinfer appears to degrade performance when sliding window attention
-            # is used for the Olmo2 architecture. Olmo2 does not use sliding window attention
-            # but Olmo3 does.
-            assert (
-                self.attention_backend != "flashinfer"
-            ), "FlashInfer backend can significantly degrade the performance of Olmo3 models."
-
-            logger.info(
-                f"Using {self.attention_backend} as attention backend for {model_arch}."
-            )
-        elif model_arch in ["KimiLinearForCausalLM"]:
-            logger.warning(
-                f"Disabling Radix Cache for {model_arch} as it is not yet supported."
-            )
-            self.disable_radix_cache = True
-        elif model_arch in ["NemotronHForCausalLM"]:
-            assert (
-                not self.enable_mamba_extra_buffer()
-            ), f"mamba extra_buffer is not supported for {model_arch} model"
-            model_config = self.get_model_config()
-            if model_config.quantization in [
-                "modelopt",
-                "modelopt_fp8",
-                "modelopt_fp4",
-            ]:
-                assert model_config.hf_config.mlp_hidden_act == "relu2"
-                if model_config.quantization == "modelopt":
-                    self.quantization = (
-                        "modelopt_fp4"
-                        if model_config.hf_config.quantization_config["quant_algo"]
-                        == "NVFP4"
-                        else "modelopt_fp8"
-                    )
-                else:
-                    self.quantization = model_config.quantization
-                self.moe_runner_backend = "flashinfer_cutlass"
-
-            if not self.disable_radix_cache and self.speculative_algorithm is not None:
-                logger.warning(
-                    "Disabling radix cache since speculative decoding for NemotronHForCausalLM is not supported with radix cache yet."
-                )
-                self.disable_radix_cache = True
-            elif not self.disable_radix_cache:
-                logger.warning(
-                    "Disabling overlap schedule since MambaRadixCache is not compatible with "
-                    "overlap schedule currently, try to use --disable-radix-cache if overlap schedule is necessary"
-                )
-                self.disable_overlap_schedule = True
-                if is_sm100_supported():
-                    if self.attention_backend is None:
-                        self.attention_backend = "flashinfer"
-                        logger.info(
-                            "Use flashinfer as attention backend on sm100 for NemotronHForCausalLM"
-                        )
-                    if self.attention_backend == "trtllm_mha":
-                        logger.warning(
-                            "Disabling radix cache since trtllm_mha does not support page_size = 1, which is required by MambaRadixCache. "
-                            "Try to use --attention-backend triton if radix cache is necessary."
-                        )
-                        self.disable_radix_cache = True
-                        self.disable_overlap_schedule = False
-            assert self.attention_backend != "triton", (
-                "NemotronHForCausalLM does not support triton attention backend,"
-                "as the first layer might not be an attention layer"
-            )
-        elif model_arch in [
-            "Qwen3MoeForCausalLM",
-            "Qwen3VLMoeForConditionalGeneration",
-        ]:
-            if is_sm100_supported():
-                quantization_config = getattr(hf_config, "quantization_config", None)
-                quant_method = (
-                    quantization_config.get("quant_method")
-                    if quantization_config is not None
-                    else None
-                )
-                if self.quantization is None and quant_method is not None:
-                    self.quantization = quant_method
-                if (
-                    self.quantization in ("fp8", "modelopt_fp4")
-                    and self.moe_a2a_backend == "none"
-                    and self.moe_runner_backend == "auto"
-                ):
-                    self.moe_runner_backend = "flashinfer_trtllm"
-                    logger.info(
-                        "Use flashinfer_trtllm as MoE runner backend on sm100 for "
-                        f"{model_arch}"
-                    )
-        elif model_arch in ["Qwen3NextForCausalLM"]:
-            if is_sm100_supported():
-                quantization_config = getattr(hf_config, "quantization_config", None)
-                quant_method = (
-                    quantization_config.get("quant_method")
-                    if quantization_config is not None
-                    else None
-                )
-                if self.quantization is None and quant_method is not None:
-                    self.quantization = quant_method
-                if (
-                    (self.quantization == "fp8" or self.quantization == "modelopt_fp4")
-                    and self.moe_a2a_backend == "none"
-                    and self.moe_runner_backend == "auto"
-                ):
-                    self.moe_runner_backend = "flashinfer_trtllm"
-                    logger.info(
-                        "Use flashinfer_trtllm as MoE runner backend on sm100 for Qwen3NextForCausalLM"
-                    )
-                if self.attention_backend is None:
-                    self.attention_backend = "triton"
-                    logger.info(
-                        "Use triton as attention backend on sm100 for Qwen3NextForCausalLM"
-                    )
-                if (
-                    not self.disable_radix_cache
-                    and self.attention_backend == "trtllm_mha"
-                ):
-                    logger.warning(
-                        "Disabling radix cache since trtllm_mha does not support page_size = 1, which is required by MambaRadixCache. "
-                        "Try to use --attention-backend triton if radix cache is necessary."
-                    )
-                    self.disable_radix_cache = True
-                    self.disable_overlap_schedule = False
-
-            # Mamba radix cache v2
-            if self.enable_mamba_extra_buffer():
-                assert (
-                    is_cuda()
-                ), "Mamba extra_buffer is only supported on CUDA devices with FLA backend"
-                if self.speculative_num_draft_tokens is not None:
-                    assert (
-                        self.mamba_track_interval >= self.speculative_num_draft_tokens
-                    ), f"mamba_track_interval {self.mamba_track_interval} must be greater than or equal to speculative_num_draft_tokens {self.speculative_num_draft_tokens}"
-
-                if self.page_size is not None:
-                    assert (
-                        self.mamba_track_interval % self.page_size == 0
-                    ), f"mamba_track_interval {self.mamba_track_interval} must be divisible by page_size {self.page_size}"
-                    assert (
-                        max(FLA_CHUNK_SIZE, self.page_size)
-                        % min(FLA_CHUNK_SIZE, self.page_size)
-                        == 0
-                    ), f"For SSM models with extra buffer, either FLA_CHUNK_SIZE or page_size must be divisible by the other, got {FLA_CHUNK_SIZE=}, {self.page_size=}"
-
-            elif not self.disable_radix_cache:
-                logger.warning(
-                    "Disabling overlap schedule since MambaRadixCache no_buffer is not compatible with "
-                    "overlap schedule currently, try to use --mamba-scheduler-strategy extra_buffer to enable overlap schedule"
-                )
-                self.disable_overlap_schedule = True
-
-        elif model_arch in [
-            "FalconH1ForCausalLM",
-            "JetNemotronForCausalLM",
-            "JetVLMForConditionalGeneration",
-        ]:
-            assert (
-                not self.enable_mamba_extra_buffer()
-            ), f"mamba extra_buffer is not supported for {model_arch} model"
-            if not self.disable_radix_cache:
-                logger.warning(
-                    "Disabling overlap schedule since mamba no_buffer is not compatible with "
-                    "overlap schedule, try to use --disable-radix-cache if overlap schedule is necessary"
-                )
-                self.disable_overlap_schedule = True
-                if is_sm100_supported():
-                    if self.attention_backend is None:
-                        self.attention_backend = "triton"
-                        logger.info(
-                            f"Use triton as attention backend on sm100 for {model_arch}"
-                        )
-                    if self.attention_backend == "trtllm_mha":
-                        logger.warning(
-                            "Disabling radix cache since trtllm_mha does not support page_size = 1, which is required by MambaRadixCache. "
-                            "Try to use --attention-backend triton if radix cache is necessary."
-                        )
-                        self.disable_radix_cache = True
-                        self.disable_overlap_schedule = False
-
         if envs.SGLANG_EMBEDDINGS_SPARSE_HEAD.is_set():
             self.disable_overlap_schedule = True
             logger.warning(
                 f"Overlap scheduler is disabled when using sparse head for embedding model."
             )
 
-        # TRTLLM AllReduce Fusion supports SM90/100, enable it by default
-        # for models with explicit support (DeepseekV3, GptOss, Glm4Moe, Qwen3Moe)
+        # TRTLLM AllReduce Fusion supports SM90/100, enable it by default for DeepSeek
         # TODO: currently, it is only supported in the single node scenario. https://github.com/flashinfer-ai/flashinfer/issues/2006
         # TODO: there is currently a bug on H20 device specifically, https://github.com/flashinfer-ai/flashinfer/issues/2204
         device_name = get_device_name()
@@ -1425,13 +1033,7 @@ class ServerArgs:
         )
         if (
             not self.enable_flashinfer_allreduce_fusion
-            and model_arch
-            in [
-                "DeepseekV3ForCausalLM",
-                "GptOssForCausalLM",
-                "Glm4MoeForCausalLM",
-                "Qwen3MoeForCausalLM",
-            ]
+            and model_arch == "DeepseekV3ForCausalLM"
             and (is_sm90_supported() or is_sm100_supported())
             and not self.enable_dp_attention
             and self.nnodes == 1
@@ -1841,23 +1443,14 @@ class ServerArgs:
             if model_arch in [
                 "DeepseekV32ForCausalLM",
                 "DeepseekV3ForCausalLM",
-                "Glm4MoeForCausalLM",
-                "BailingMoeForCausalLM",
-                "BailingMoeV2ForCausalLM",
-                "MistralLarge3ForCausalLM",
-                "PixtralForConditionalGeneration",
             ]:
                 if self.speculative_draft_model_path is None:
                     self.speculative_draft_model_path = self.model_path
                     self.speculative_draft_model_revision = self.revision
                 else:
-                    if model_arch not in [
-                        "MistralLarge3ForCausalLM",
-                        "PixtralForConditionalGeneration",
-                    ]:
-                        logger.warning(
-                            "DeepSeek MTP does not require setting speculative_draft_model_path."
-                        )
+                    logger.warning(
+                        "DeepSeek MTP does not require setting speculative_draft_model_path."
+                    )
 
             if self.speculative_num_steps is None:
                 assert (
@@ -2052,19 +1645,12 @@ class ServerArgs:
         os.environ["SGLANG_ENABLE_TORCH_COMPILE"] = (
             "1" if self.enable_torch_compile else "0"
         )
-        os.environ["SGLANG_MAMBA_SSM_DTYPE"] = self.mamba_ssm_dtype
         os.environ["SGLANG_DISABLE_OUTLINES_DISK_CACHE"] = (
             "1" if self.disable_outlines_disk_cache else "0"
         )
         os.environ["SGLANG_ENABLE_DETERMINISTIC_INFERENCE"] = (
             "1" if self.enable_deterministic_inference else "0"
         )
-        # Set the highest strict level for Kimi K2 tool calls
-        if (
-            self.tool_call_parser == "kimi_k2"
-            and not envs.SGLANG_TOOL_STRICT_LEVEL.is_set()
-        ):
-            envs.SGLANG_TOOL_STRICT_LEVEL.set(ToolStrictLevel.PARAMETER)
 
     def _handle_cache_compatibility(self):
         if self.enable_hierarchical_cache and self.disable_radix_cache:
@@ -2107,19 +1693,16 @@ class ServerArgs:
                 "Sampling backend is set to pytorch for deterministic inference."
             )
             is_deepseek_model = False
-            if parse_connector_type(self.model_path) != ConnectorType.INSTANCE:
-                try:
-                    hf_config = self.get_model_config().hf_config
-                    model_arch = hf_config.architectures[0]
-                    is_deepseek_model = model_arch in [
-                        "DeepseekV2ForCausalLM",
-                        "DeepseekV3ForCausalLM",
-                        "DeepseekV32ForCausalLM",
-                        "MistralLarge3ForCausalLM",
-                        "PixtralForConditionalGeneration",
-                    ]
-                except Exception:
-                    pass
+            try:
+                hf_config = self.get_model_config().hf_config
+                model_arch = hf_config.architectures[0]
+                is_deepseek_model = model_arch in [
+                    "DeepseekV2ForCausalLM",
+                    "DeepseekV3ForCausalLM",
+                    "DeepseekV32ForCausalLM",
+                ]
+            except Exception:
+                pass
 
             # Check attention backend
             if self.attention_backend is None:
@@ -2170,36 +1753,6 @@ class ServerArgs:
                 logger.warning(
                     "NCCL_ALGO is set to 'allreduce:tree' and custom all reduce is disabled for deterministic inference when TP size > 1."
                 )
-
-    def _handle_dllm_inference(self):
-        if self.dllm_algorithm is None:
-            return
-        elif not self.disable_cuda_graph:
-            if self.cuda_graph_bs != [1]:
-                logger.warning(
-                    "Cuda graph bs is set to [1] because of using diffusion LLM inference"
-                )
-                self.cuda_graph_bs = [1]
-            if self.attention_backend != "flashinfer":
-                logger.warning(
-                    "Attention backend is set to flashinfer because of enabling cuda graph in diffusion LLM inference"
-                )
-                self.attention_backend = "flashinfer"
-        if not self.disable_overlap_schedule:
-            logger.warning(
-                "Overlap schedule is disabled because of using diffusion LLM inference"
-            )
-            self.disable_overlap_schedule = True
-        if not self.disable_radix_cache:
-            logger.warning(
-                "Radix cache is disabled because of using diffusion LLM inference"
-            )
-            self.disable_radix_cache = True
-        if not self.pp_size > 1:
-            logger.warning(
-                "Pipeline parallelism is disabled because of using diffusion LLM inference"
-            )
-            self.pp_size = 1
 
     def _handle_other_validations(self):
         # Handle model inference tensor dump.
@@ -2345,10 +1898,6 @@ class ServerArgs:
             type=str,
             default=ServerArgs.fastapi_root_path,
             help="App is behind a path based routing proxy.")
-        parser.add_argument(
-            "--grpc-mode",
-            action="store_true",
-            help="If set, use gRPC server instead of HTTP server.")
         parser.add_argument(
             "--skip-server-warmup",
             action="store_true",
@@ -2586,7 +2135,7 @@ class ServerArgs:
             "--device",
             type=str,
             default=ServerArgs.device,
-            help="The device to use ('cuda', 'xpu', 'hpu', 'npu', 'cpu'). Defaults to auto-detection if not specified.")
+            help="The device to use (NVIDIA 'cuda' only). Defaults to auto-detection.")
         parser.add_argument(
             "--tensor-parallel-size",
             "--tp-size",
@@ -2720,70 +2269,7 @@ class ServerArgs:
             "--show-time-cost",
             action="store_true",
             help="Show time cost of custom marks.")
-        parser.add_argument(
-            "--enable-metrics",
-            action="store_true",
-            help="Enable log prometheus metrics.")
-        parser.add_argument(
-            "--enable-metrics-for-all-schedulers",
-            action="store_true",
-            help="Enable --enable-metrics-for-all-schedulers when you want schedulers on all TP ranks (not just TP 0) "
-            "to record request metrics separately. This is especially useful when dp_attention is enabled, as "
-            "otherwise all metrics appear to come from TP 0.")
-        parser.add_argument(
-            "--tokenizer-metrics-custom-labels-header",
-            type=str,
-            default=ServerArgs.tokenizer_metrics_custom_labels_header,
-            help="Specify the HTTP header for passing custom labels for tokenizer metrics.")
-        parser.add_argument(
-            "--tokenizer-metrics-allowed-custom-labels",
-            type=str,
-            nargs="+",
-            default=ServerArgs.tokenizer_metrics_allowed_custom_labels,
-            help="The custom labels allowed for tokenizer metrics. The labels are specified via a dict in "
-            "'--tokenizer-metrics-custom-labels-header' field in HTTP requests, e.g., {'label1': 'value1', 'label2': "
-            "'value2'} is allowed if '--tokenizer-metrics-allowed-custom-labels label1 label2' is set.")
-        parser.add_argument(
-            "--bucket-time-to-first-token",
-            type=float,
-            nargs="+",
-            default=ServerArgs.bucket_time_to_first_token,
-            help="The buckets of time to first token, specified as a list of floats.")
-        parser.add_argument(
-            "--bucket-inter-token-latency",
-            type=float,
-            nargs="+",
-            default=ServerArgs.bucket_inter_token_latency,
-            help="The buckets of inter-token latency, specified as a list of floats.")
-        parser.add_argument(
-            "--bucket-e2e-request-latency",
-            type=float,
-            nargs="+",
-            default=ServerArgs.bucket_e2e_request_latency,
-            help="The buckets of end-to-end request latency, specified as a list of floats.")
-        parser.add_argument(
-            "--collect-tokens-histogram",
-            action="store_true",
-            default=ServerArgs.collect_tokens_histogram,
-            help="Collect prompt/generation tokens histogram.")
-        bucket_rule = (
-            "Supports 3 rule types: 'default' uses predefined buckets; 'tse <middle> <base> <count>' "
-            "generates two sides exponential distributed buckets (e.g., 'tse 1000 2 8' generates buckets "
-            "[984.0, 992.0, 996.0, 998.0, 1000.0, 1002.0, 1004.0, 1008.0, 1016.0]).); 'custom <value1> "
-            "<value2> ...' uses custom bucket values (e.g., 'custom 10 50 100 500')."
-        )
-        parser.add_argument(
-            "--prompt-tokens-buckets",
-            type=str,
-            nargs="+",
-            default=ServerArgs.prompt_tokens_buckets,
-            help=f"The buckets rule of prompt tokens. {bucket_rule}")
-        parser.add_argument(
-            "--generation-tokens-buckets",
-            type=str,
-            nargs="+",
-            default=ServerArgs.generation_tokens_buckets,
-            help=f"The buckets rule for generation tokens histogram. {bucket_rule}")
+        # Prometheus metrics arguments removed in DeepSeek-only build
         parser.add_argument(
             "--gc-warning-threshold-secs",
             type=float,
@@ -2863,9 +2349,9 @@ class ServerArgs:
         parser.add_argument(
             "--reasoning-parser",
             type=str,
-            choices=list(ReasoningParser.DetectorMap.keys()),
+            choices=REASONING_PARSER_CHOICES,
             default=ServerArgs.reasoning_parser,
-            help=f"Specify the parser for reasoning models, supported parsers are: {list(ReasoningParser.DetectorMap.keys())}.")
+            help=f"Specify the parser for reasoning models, supported parsers are: {REASONING_PARSER_CHOICES}.")
         tool_call_parser_choices = list(FunctionCallParser.ToolCallParserEnum.keys())
         parser.add_argument(
             "--tool-call-parser",
@@ -2935,62 +2421,6 @@ class ServerArgs:
             "--preferred-sampling-params",
             type=json.loads,
             help="json-formatted sampling settings that will be returned in /get_model_info")
-
-        # LoRA
-        parser.add_argument(
-            "--enable-lora",
-            default=ServerArgs.enable_lora,
-            action="store_true",
-            help="Enable LoRA support for the model. This argument is automatically set to True if `--lora-paths` is provided for backward compatibility.")
-        parser.add_argument(
-            "--max-lora-rank",
-            default=ServerArgs.max_lora_rank,
-            type=int,
-            help="The maximum rank of LoRA adapters. If not specified, it will be automatically inferred from the adapters provided in --lora-paths.")
-        parser.add_argument(
-            "--lora-target-modules",
-            type=str,
-            choices=SUPPORTED_LORA_TARGET_MODULES + [LORA_TARGET_ALL_MODULES],
-            nargs="*",
-            default=None,
-            help="The union set of all target modules where LoRA should be applied. If not specified, "
-            "it will be automatically inferred from the adapters provided in --lora-paths. If 'all' is specified, "
-            "all supported modules will be targeted.")
-        parser.add_argument(
-            "--lora-paths",
-            type=str,
-            nargs="*",
-            default=None,
-            action=LoRAPathAction,
-            help='The list of LoRA adapters to load. Each adapter must be specified in one of the following formats: <PATH> | <NAME>=<PATH> | JSON with schema {"lora_name":str,"lora_path":str,"pinned":bool}')
-        parser.add_argument(
-            "--max-loras-per-batch",
-            type=int,
-            default=8,
-            help="Maximum number of adapters for a running batch, include base-only request.")
-        parser.add_argument(
-            "--max-loaded-loras",
-            type=int,
-            default=ServerArgs.max_loaded_loras,
-            help="If specified, it limits the maximum number of LoRA adapters loaded in CPU memory at a time. The value must be greater than or equal to `--max-loras-per-batch`.")
-        parser.add_argument(
-            "--lora-eviction-policy",
-            type=str,
-            default=ServerArgs.lora_eviction_policy,
-            choices=["lru", "fifo"],
-            help="LoRA adapter eviction policy when memory pool is full. 'lru': Least Recently Used (default, better cache efficiency). 'fifo': First-In-First-Out.")
-        parser.add_argument(
-            "--lora-backend",
-            type=str,
-            choices=LORA_BACKEND_CHOICES,
-            default=ServerArgs.lora_backend,
-            help="Choose the kernel backend for multi-LoRA serving.")
-        parser.add_argument(
-            "--max-lora-chunk-size",
-            type=int,
-            default=ServerArgs.max_lora_chunk_size,
-            choices=[16, 32, 64, 128],
-            help="Maximum chunk size for the ChunkedSGMV LoRA backend. Only used when --lora-backend is 'csgmv'. Choosing a larger value might improve performance.")
 
         # Kernel backend
         parser.add_argument(
@@ -3292,35 +2722,6 @@ class ServerArgs:
             "(e.g., --mooncake-ib-device mlx5_0,mlx5_1). "
             "Default is None, which triggers automatic device detection when Mooncake Backend is enabled.")
 
-        # Mamba Cache
-        parser.add_argument(
-            "--max-mamba-cache-size",
-            type=int,
-            default=ServerArgs.max_mamba_cache_size,
-            help="The maximum size of the mamba cache.")
-        parser.add_argument(
-            "--mamba-ssm-dtype",
-            type=str,
-            default=ServerArgs.mamba_ssm_dtype,
-            choices=MAMBA_SSM_DTYPE_CHOICES,
-            help="The data type of the SSM states in mamba cache.")
-        parser.add_argument(
-            "--mamba-full-memory-ratio",
-            type=float,
-            default=ServerArgs.mamba_full_memory_ratio,
-            help="The ratio of mamba state memory to full kv cache memory.")
-        parser.add_argument(
-            "--mamba-scheduler-strategy",
-            type=str,
-            choices=MAMBA_SCHEDULER_STRATEGY_CHOICES,
-            default=ServerArgs.mamba_scheduler_strategy,
-            help="The strategy to use for mamba radix cache.")
-        parser.add_argument(
-            "--mamba-track-interval",
-            type=int,
-            default=ServerArgs.mamba_track_interval,
-            help="The interval to track the mamba state during decode.")
-
         # Hierarchical cache
         parser.add_argument(
             "--enable-hierarchical-cache",
@@ -3389,7 +2790,7 @@ class ServerArgs:
             help="A dictionary in JSON string format for hierarchical sparse attention configuration. "
             "Required fields: algorithm (str), backend (str). "
             "All other fields are algorithm-specific and passed to the algorithm constructor. "
-            'Example: \'{"algorithm": "quest", "backend": "flashattention", "sparsity_ratio": 0.7, "min_sparse_prompt_len": 2048}\'')
+            'Example: \'{"algorithm": "deepseek_nsa", "sparsity_ratio": 0.7, "min_sparse_prompt_len": 2048}\'')
 
         # LMCache
         parser.add_argument(
@@ -3425,18 +2826,6 @@ class ServerArgs:
             type=int,
             default=ServerArgs.kt_max_deferred_experts_per_token,
             help="[ktransformers parameter] Maximum number of experts deferred to CPU per token. All MoE layers except the final one use this value; the final layer always uses 0.")
-
-        # Diffusion LLM
-        parser.add_argument(
-            "--dllm-algorithm",
-            type=str,
-            default=ServerArgs.dllm_algorithm,
-            help="The diffusion LLM algorithm, such as LowConfidence.")
-        parser.add_argument(
-            "--dllm-algorithm-config",
-            type=str,
-            default=ServerArgs.dllm_algorithm_config,
-            help="The diffusion LLM algorithm configurations. Must be a YAML file.")
 
         # Double Sparsity
         parser.add_argument(
@@ -4043,15 +3432,6 @@ class ServerArgs:
             and self.decode_attention_backend is None
         )
 
-    def enable_mamba_extra_buffer(self) -> bool:
-        return self.mamba_scheduler_strategy == "extra_buffer"
-
-    @property
-    def mamba_cache_chunk_size(self) -> int:
-        # For mamba cache with extra buffer, the chunk size is the max of FLA_CHUNK_SIZE and page_size.
-        # It is used to determine the caching point in a sequence during prefill.
-        return max(FLA_CHUNK_SIZE, self.page_size)
-
     def check_server_args(self):
         # Check parallel size constraints
         assert (
@@ -4083,9 +3463,6 @@ class ServerArgs:
             "The colon is reserved for the 'model:adapter' syntax used in LoRA adapter specification. "
             f"Invalid value: '{self.served_model_name}'"
         )
-
-        # Check LoRA
-        self.check_lora_server_args()
 
         # torch 2.9.1 has compatibility issues with cuDNN 9.14 and below,
         # causing extremely slow nn.Conv3d performance.
@@ -4228,112 +3605,6 @@ class ServerArgs:
                     logger.warning(
                         f"{RED}WARNING: Could not determine CuDNN version for torch==2.9.1. Please ensure CuDNN >= 9.15 to avoid nn.Conv3d bugs.{RESET}"
                     )
-
-    def check_lora_server_args(self):
-        assert self.max_loras_per_batch > 0, "max_loras_per_batch must be positive"
-
-        # Enable LoRA if any LoRA paths are provided for backward compatibility.
-        if self.lora_paths:
-            if self.enable_lora is None:
-                self.enable_lora = True
-                logger.warning(
-                    "--enable-lora is set to True because --lora-paths is provided."
-                )
-            elif self.enable_lora is False:
-                logger.warning(
-                    "--enable-lora is set to False, any provided lora_paths will be ignored."
-                )
-
-        if self.enable_lora:
-            # Validate compatibility with speculative decoding
-            if self.speculative_algorithm not in ["NGRAM", None]:
-                raise ValueError(
-                    "Currently LoRA is only compatible with NGRAM speculative decoding."
-                )
-
-            # Parse lora_paths
-            if isinstance(self.lora_paths, list):
-                lora_paths = self.lora_paths
-                self.lora_paths = []
-                for lora_path in lora_paths:
-                    if isinstance(lora_path, str):
-                        if "=" in lora_path:
-                            name, path = lora_path.split("=", 1)
-                            lora_ref = LoRARef(
-                                lora_name=name, lora_path=path, pinned=False
-                            )
-                        else:
-                            lora_ref = LoRARef(
-                                lora_name=lora_path, lora_path=lora_path, pinned=False
-                            )
-                    elif isinstance(lora_path, dict):
-                        assert (
-                            "lora_name" in lora_path and "lora_path" in lora_path
-                        ), f"When providing LoRA paths as a list of dict, each dict should contain 'lora_name' and 'lora_path' keys. Got: {lora_path}"
-                        lora_ref = LoRARef(
-                            lora_name=lora_path["lora_name"],
-                            lora_path=lora_path["lora_path"],
-                            pinned=lora_path.get("pinned", False))
-                    else:
-                        raise ValueError(
-                            f"Invalid type for item in --lora-paths list: {type(lora_path)}. "
-                            "Expected a string or a dictionary."
-                        )
-                    self.lora_paths.append(lora_ref)
-            elif isinstance(self.lora_paths, dict):
-                self.lora_paths = [
-                    LoRARef(lora_name=k, lora_path=v, pinned=False)
-                    for k, v in self.lora_paths.items()
-                ]
-            elif self.lora_paths is None:
-                self.lora_paths = []
-            else:
-                raise ValueError(
-                    f"Invalid type for --lora-paths: {type(self.lora_paths)}. "
-                    "Expected a list or a dictionary."
-                )
-
-            # Expand target modules
-            if self.lora_target_modules:
-                self.lora_target_modules = set(self.lora_target_modules)
-                if "all" in self.lora_target_modules:
-                    assert (
-                        len(self.lora_target_modules) == 1
-                    ), "If 'all' is specified in --lora-target-modules, it should be the only module specified."
-                    self.lora_target_modules = set(SUPPORTED_LORA_TARGET_MODULES)
-
-                    # When using the chunked SGMV backend, skip embedding / lm_head layers for now,
-                    # since it does not support these yet (TODO: implement embedding / lm_head support)
-                    if self.lora_backend == "csgmv":
-                        logger.warning(
-                            "LoRA backend 'csgmv' does not yet support embedding or lm_head layers; "
-                            "dropping 'embed_tokens' and 'lm_head' from --lora-target-modules=all. "
-                            "To apply LoRA to these, use --lora-backend triton."
-                        )
-                        self.lora_target_modules.discard("embed_tokens")
-                        self.lora_target_modules.discard("lm_head")
-
-            # Ensure sufficient information is provided for LoRA initialization.
-            assert self.lora_paths or (
-                self.max_lora_rank and self.lora_target_modules
-            ), "When no initial --lora-paths is provided, you need to specify both --max-lora-rank and --lora-target-modules for LoRA initialization."
-
-            # Validate max_loaded_loras
-            if self.max_loaded_loras is not None:
-                assert self.max_loaded_loras >= self.max_loras_per_batch, (
-                    "max_loaded_loras should be greater than or equal to max_loras_per_batch. "
-                    f"max_loaded_loras={self.max_loaded_loras}, max_loras_per_batch={self.max_loras_per_batch}"
-                )
-                assert len(self.lora_paths) <= self.max_loaded_loras, (
-                    "The number of LoRA paths should not exceed max_loaded_loras. "
-                    f"max_loaded_loras={self.max_loaded_loras}, lora_paths={len(self.lora_paths)}"
-                )
-
-            if self.max_lora_chunk_size is not None:
-                assert (
-                    16 <= self.max_lora_chunk_size <= 128
-                    and (self.max_lora_chunk_size & (self.max_lora_chunk_size - 1)) == 0
-                ), "--max-lora-chunk-size must be a power of 2 between 16 and 128."
 
     def validate_disagg_tp_size(self, prefill_tp: int, decode_tp: int):
         larger_tp = max(decode_tp, prefill_tp)
@@ -4617,26 +3888,6 @@ class PortArgs:
                 tokenizer_worker_ipc_name=tokenizer_worker_ipc_name)
 
 
-class LoRAPathAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        lora_paths = []
-        if values:
-            assert isinstance(values, list), "Expected a list of LoRA paths."
-            for lora_path in values:
-                lora_path = lora_path.strip()
-                if lora_path.startswith("{") and lora_path.endswith("}"):
-                    obj = json.loads(lora_path)
-                    assert "lora_path" in obj and "lora_name" in obj, (
-                        f"{repr(lora_path)} looks like a JSON str, "
-                        "but it does not contain 'lora_name' and 'lora_path' keys."
-                    )
-                    lora_paths.append(obj)
-                else:
-                    lora_paths.append(lora_path)
-
-        setattr(namespace, self.dest, lora_paths)
-
-
 def print_deprecated_warning(message: str):
     logger.warning(f"\033[1;33m{message}\033[0m")
 
@@ -4664,24 +3915,12 @@ def auto_choose_speculative_params(self: ServerArgs):
     if self.speculative_algorithm == "STANDALONE":
         # The default value for standalone speculative decoding
         return (3, 1, 4)
-    if arch in ["LlamaForCausalLM"]:
-        # The default value for llama
-        return (5, 4, 8)
-    elif arch in [
+    if arch in [
         "DeepseekV32ForCausalLM",
         "DeepseekV3ForCausalLM",
         "DeepseekV2ForCausalLM",
-        "GptOssForCausalLM",
-        "Glm4MoeForCausalLM",
-        "BailingMoeForCausalLM",
-        "BailingMoeV2ForCausalLM",
-        "MistralLarge3ForCausalLM",
-        "PixtralForConditionalGeneration",
-        "MiMoV2FlashForCausalLM",
     ]:
         return (3, 1, 4)
-    elif arch in ["Grok1ForCausalLM", "Grok1VForCausalLM"]:
-        return (5, 4, 8)
     else:
         # The default value for all other models
         return (3, 1, 4)

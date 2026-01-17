@@ -229,7 +229,7 @@ def apply_qk_norm(
     q_eps = q_norm.variance_epsilon
     k_eps = k_norm.variance_epsilon
     if (
-        _is_cuda  # TODO(dark): have not tested on ROCm or other backends
+        _is_cuda
         and allow_inplace  # TODO(dark): this can be relaxed if needed
         and (q_eps == k_eps)  # TODO(dark): this can also be relaxed
         and not envs.SGLANG_ENABLE_DETERMINISTIC_INFERENCE.get()

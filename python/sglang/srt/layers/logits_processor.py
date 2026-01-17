@@ -878,8 +878,7 @@ class LogitsProcessor(nn.Module):
                     hidden_states.to(lm_head.weight.dtype), lm_head.weight.T
                 )
         else:
-            # GGUF models
-            # TODO: use weight_packed_linear for GGUF models
+            # Quantized models (e.g., via quant_method)
             if self.use_fp32_lm_head:
                 with torch.cuda.amp.autocast(enabled=False):
                     logits = lm_head.quant_method.apply(

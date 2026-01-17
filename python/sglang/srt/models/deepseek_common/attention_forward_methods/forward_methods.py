@@ -18,15 +18,3 @@ class AttnForwardMethod(IntEnum):
 
     # Use MLA but with fused RoPE
     MLA_FUSED_ROPE = auto()
-
-    # Use MLA with fused RoPE kernel for CPU
-    MLA_FUSED_ROPE_CPU = auto()
-
-    # Use multi-head attention for NPU
-    MHA_NPU = auto()
-
-    # Use absorbed multi-latent attention for NPU
-    MLA_NPU = auto()
-
-    # Use Deepseek V3.2 sparse multi-latent attention for NPU
-    DSA_NPU = auto()

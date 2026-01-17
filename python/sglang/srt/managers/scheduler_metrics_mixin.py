@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from sglang.srt.disaggregation.kv_events import EventPublisherFactory, KVEventBatch
 from sglang.srt.disaggregation.utils import DisaggregationMode
@@ -12,24 +13,51 @@ from sglang.srt.environ import envs
 from sglang.srt.managers.io_struct import GetLoadReqInput, GetLoadReqOutput
 from sglang.srt.managers.schedule_policy import PrefillAdder
 from sglang.srt.managers.scheduler import Req, ScheduleBatch
-from sglang.srt.managers.utils import GenerationBatchResult
-from sglang.srt.metrics.collector import (
-    SchedulerMetricsCollector,
-    SchedulerStats,
-    compute_routing_key_stats,
-)
 from sglang.srt.utils import get_bool_env_var
-from sglang.srt.utils.device_timer import DeviceTimer
 from sglang.srt.utils.scheduler_status_logger import SchedulerStatusLogger
 
 if TYPE_CHECKING:
-    from sglang.srt.managers.scheduler import EmbeddingBatchResult, Scheduler
+    from sglang.srt.managers.scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
 
 RECORD_STEP_TIME = get_bool_env_var("SGLANG_RECORD_STEP_TIME")
 LOG_FORWARD_ITERS = envs.SGLANG_LOG_FORWARD_ITERS.get()
-ENABLE_METRICS_DEVICE_TIMER = envs.SGLANG_ENABLE_METRICS_DEVICE_TIMER.get()
+
+
+@dataclasses.dataclass
+class SchedulerStats:
+    """Store scheduler statistics for logging (metrics disabled)."""
+    num_running_reqs: int = 0
+    num_running_reqs_offline_batch: int = 0
+    num_used_tokens: int = 0
+    token_usage: float = 0.0
+    swa_token_usage: float = 0.0
+    num_queue_reqs: int = 0
+    num_grammar_queue_reqs: int = 0
+    cache_hit_rate: float = 0.0
+    max_total_num_tokens: int = 0
+    num_retracted_reqs: int = 0
+    num_paused_reqs: int = 0
+    new_token_ratio: float = 0.0
+    decode_sum_seq_lens: int = 0
+    gen_throughput: float = 0.0
+    spec_accept_rate: float = 0.0
+    spec_accept_length: float = 0.0
+    num_prefill_prealloc_queue_reqs: int = 0
+    num_prefill_inflight_queue_reqs: int = 0
+    num_decode_prealloc_queue_reqs: int = 0
+    num_decode_transfer_queue_reqs: int = 0
+    kv_transfer_speed_gb_s: float = 0.0
+    kv_transfer_latency_ms: float = 0.0
+    kv_transfer_bootstrap_ms: float = 0.0
+    kv_transfer_alloc_ms: float = 0.0
+    kv_transfer_total_mb: float = 0.0
+    utilization: float = 0.0
+    max_running_requests_under_SLO: Optional[int] = None
+    num_unique_running_routing_keys: int = 0
+    routing_key_running_req_counts: Dict[str, int] = dataclasses.field(default_factory=dict)
+    routing_key_all_req_counts: Dict[str, int] = dataclasses.field(default_factory=dict)
 
 
 class KvMetrics:
@@ -77,38 +105,9 @@ class SchedulerMetricsMixin:
 
         self.stats = SchedulerStats()
 
-        # Metrics
-        self.current_scheduler_metrics_enabled = (
-            self.attn_tp_rank == 0 or self.enable_metrics_for_all_schedulers
-        )
-
-        if self.enable_metrics:
-            if self.server_args.disaggregation_mode == DisaggregationMode.PREFILL:
-                engine_type = "prefill"
-            elif self.server_args.disaggregation_mode == DisaggregationMode.DECODE:
-                engine_type = "decode"
-            else:
-                engine_type = "unified"
-
-            labels = {
-                "model_name": self.server_args.served_model_name,
-                "engine_type": engine_type,
-                "tp_rank": tp_rank,
-                "pp_rank": pp_rank,
-                "moe_ep_rank": self.moe_ep_rank,
-            }
-            if dp_rank is not None:
-                labels["dp_rank"] = dp_rank
-            self.metrics_collector = SchedulerMetricsCollector(
-                labels=labels,
-                enable_lora=self.enable_lora,
-                server_args=self.server_args,
-            )
-
-            if ENABLE_METRICS_DEVICE_TIMER:
-                self.forward_pass_device_timer = DeviceTimer(
-                    reporter=self.metrics_collector.increment_gpu_execution_seconds,
-                )
+        # Metrics disabled
+        self.current_scheduler_metrics_enabled = False
+        self.metrics_collector = None
 
         if self.enable_kv_cache_events:
             self.init_kv_events(self.server_args.kv_events_config)
@@ -170,23 +169,6 @@ class SchedulerMetricsMixin:
                 f"full token usage: {full_token_usage:.2f}, "
                 f"swa token usage: {swa_token_usage:.2f}, "
             )
-        elif self.is_hybrid_ssm:
-            (
-                full_num_used,
-                _,
-                full_token_usage,
-                mamba_usage,
-                _,
-                _,
-                _,
-                _,
-            ) = self._get_mamba_token_info()
-            num_used = full_num_used
-            token_usage = full_token_usage
-            token_usage_msg = (
-                f"full token usage: {full_token_usage:.2f}, "
-                f"mamba usage: {mamba_usage:.2f}, "
-            )
         else:
             num_used, token_usage, _, _ = self._get_token_info()
             token_usage_msg = f"token usage: {token_usage:.2f}, "
@@ -211,72 +193,12 @@ class SchedulerMetricsMixin:
 
         logger.info(f)
 
-        if self.enable_metrics:
-            # Basics
-            total_tokens = adder.log_input_tokens + adder.log_hit_tokens
-            cache_hit_rate = (
-                adder.log_hit_tokens / total_tokens if total_tokens > 0 else 0.0
-            )
-
-            self.stats.num_running_reqs = running_bs
-            self.stats.num_running_reqs_offline_batch = running_bs_offline_batch
-            self.stats.num_used_tokens = num_used
-            self.stats.token_usage = token_usage
-            if self.is_hybrid_swa:
-                self.stats.swa_token_usage = swa_token_usage
-            if self.is_hybrid_ssm:
-                self.stats.mamba_usage = mamba_usage
-            self.stats.num_queue_reqs = len(self.waiting_queue)
-            self.stats.num_grammar_queue_reqs = len(self.grammar_queue)
-            self.stats.cache_hit_rate = cache_hit_rate
-
-            self.stats.max_total_num_tokens = self.max_total_num_tokens
-
-            # Retract
-            self.stats.num_retracted_reqs = self.num_retracted_reqs
-            self.stats.num_paused_reqs = self.num_paused_reqs
-            self.num_retracted_reqs = self.num_paused_reqs = 0
-
-            # PD disaggregation
-            if self.disaggregation_mode == DisaggregationMode.PREFILL:
-                self.stats.num_prefill_prealloc_queue_reqs = len(
-                    self.disagg_prefill_bootstrap_queue.queue
-                )
-                self.stats.num_prefill_inflight_queue_reqs = len(
-                    self.disagg_prefill_inflight_queue
-                )
-                self.stats.kv_transfer_speed_gb_s = self.kv_transfer_speed_gb_s
-                self.stats.kv_transfer_latency_ms = self.kv_transfer_latency_ms
-                self.stats.kv_transfer_bootstrap_ms = self.kv_transfer_bootstrap_ms
-                self.stats.kv_transfer_alloc_ms = self.kv_transfer_alloc_ms
-                self.stats.kv_transfer_total_mb = self.kv_transfer_total_mb
-            elif self.disaggregation_mode == DisaggregationMode.DECODE:
-                self.stats.num_decode_prealloc_queue_reqs = len(
-                    self.disagg_decode_prealloc_queue.queue
-                )
-                self.stats.num_decode_transfer_queue_reqs = len(
-                    self.disagg_decode_transfer_queue.queue
-                )
-
-            # Others
-            self.calculate_utilization()
-            self.update_lora_metrics()
-            self.metrics_collector.log_stats(self.stats)
-            self._emit_kv_metrics()
+        self._emit_kv_metrics()
         self._publish_kv_events()
 
     def log_prefill_stats_late(self: Scheduler, batch: Optional[ScheduleBatch]):
         """This should be called after `batch` has gathered enough metadata."""
-
-        info = self.temp_prefill_info
         self.temp_prefill_info = None
-
-        if self.enable_metrics and batch is not None and info is not None:
-            self.metrics_collector.increment_realtime_tokens(
-                prefill_compute_tokens=info["adder_log_input_tokens"],
-                prefill_cache_tokens=info["adder_log_hit_tokens"],
-                dp_cooperation_info=batch.dp_cooperation_info,
-            )
 
     def log_decode_stats(
         self: Scheduler, can_run_cuda_graph: bool, running_batch: ScheduleBatch = None
@@ -310,25 +232,6 @@ class SchedulerMetricsMixin:
                 f"full token usage: {full_token_usage:.2f}, "
                 f"#swa token: {swa_num_used}, "
                 f"swa token usage: {swa_token_usage:.2f}, "
-            )
-        elif self.is_hybrid_ssm:
-            (
-                full_num_used,
-                mamba_used,
-                full_token_usage,
-                mamba_usage,
-                _,
-                _,
-                _,
-                _,
-            ) = self._get_mamba_token_info()
-            num_used = full_num_used
-            token_usage = full_token_usage
-            token_usage_msg = (
-                f"#full token: {full_num_used}, "
-                f"full token usage: {full_token_usage:.2f}, "
-                f"mamba num: {mamba_used}, "
-                f"mamba usage: {mamba_usage:.2f}, "
             )
         else:
             num_used, token_usage, _, _ = self._get_token_info()
@@ -380,94 +283,18 @@ class SchedulerMetricsMixin:
         )
 
         logger.info(msg)
-        if self.enable_metrics:
-            # Basics
-            self.stats.num_running_reqs = num_running_reqs
-            self.stats.num_running_reqs_offline_batch = num_running_reqs_offline_batch
-            self.stats.num_used_tokens = num_used
-            self.stats.token_usage = token_usage
-            if self.is_hybrid_swa:
-                self.stats.swa_token_usage = swa_token_usage
-            if self.is_hybrid_ssm:
-                self.stats.mamba_usage = mamba_usage
-            self.stats.decode_sum_seq_lens = batch.seq_lens_cpu.sum().item()
-            self.stats.gen_throughput = self.last_gen_throughput
-            self.stats.num_queue_reqs = len(self.waiting_queue)
-            self.stats.num_grammar_queue_reqs = len(self.grammar_queue)
-            self.stats.cache_hit_rate = cache_hit_rate
 
-            self.stats.max_total_num_tokens = self.max_total_num_tokens
-
-            # Speculative decoding
-            self.stats.spec_accept_rate = spec_accept_rate
-            self.stats.spec_accept_length = spec_accept_length
-
-            # Retract
-            self.stats.num_retracted_reqs = self.num_retracted_reqs
-            self.stats.num_paused_reqs = self.num_paused_reqs
-            self.num_retracted_reqs = self.num_paused_reqs = 0
-
-            # PD disaggregation
-            if self.disaggregation_mode == DisaggregationMode.PREFILL:
-                self.stats.num_prefill_prealloc_queue_reqs = len(
-                    self.disagg_prefill_bootstrap_queue.queue
-                )
-                self.stats.num_prefill_inflight_queue_reqs = len(
-                    self.disagg_prefill_inflight_queue
-                )
-            elif self.disaggregation_mode == DisaggregationMode.DECODE:
-                self.stats.num_decode_prealloc_queue_reqs = len(
-                    self.disagg_decode_prealloc_queue.queue
-                )
-                self.stats.num_decode_transfer_queue_reqs = len(
-                    self.disagg_decode_transfer_queue.queue
-                )
-
-            running_routing_keys = [r.routing_key for r in batch.reqs]
-            waiting_routing_keys = [r.routing_key for r in self.waiting_queue]
-            (
-                self.stats.num_unique_running_routing_keys,
-                self.stats.routing_key_running_req_counts,
-            ) = compute_routing_key_stats(running_routing_keys)
-            _, self.stats.routing_key_all_req_counts = compute_routing_key_stats(
-                running_routing_keys + waiting_routing_keys
-            )
-
-            # Others
-            self.calculate_utilization()
-            self.update_lora_metrics()
-            self.metrics_collector.log_stats(self.stats)
-            self._emit_kv_metrics()
+        self._emit_kv_metrics()
         self._publish_kv_events()
 
     def log_decode_stats_every_iteration(
         self: Scheduler, batch: ScheduleBatch, num_accepted_tokens: int
     ):
-        if self.enable_metrics:
-            self.metrics_collector.increment_realtime_tokens(
-                # TODO unify this w/ the bumping logic in `Scheduler.num_generated_tokens` accumulator
-                decode_tokens=batch.batch_size() + num_accepted_tokens,
-                dp_cooperation_info=batch.dp_cooperation_info,
-            )
-
         if x := self.scheduler_status_logger:
             x.maybe_dump(batch, self.waiting_queue)
 
-    def log_batch_result_stats(
-        self: Scheduler,
-        batch: ScheduleBatch,
-        result: Union[GenerationBatchResult, EmbeddingBatchResult],
-    ):
-        if not self.enable_metrics:
-            return
-        if not isinstance(result, GenerationBatchResult):
-            return
-
-        if (m := result.expert_distribution_metrics) is not None:
-            self.metrics_collector.increment_eplb_balancedness(
-                forward_mode=batch.forward_mode.name.lower(),
-                balancedness=m.eplb_balancedness.item(),
-            )
+    def log_batch_result_stats(self: Scheduler, batch, result):
+        pass
 
     def _emit_kv_metrics(self: Scheduler):
         if not self.enable_kv_cache_events:
@@ -497,50 +324,6 @@ class SchedulerMetricsMixin:
             batch = KVEventBatch(ts=time.time(), events=events)
             self.kv_event_publisher.publish(batch)
 
-    def update_lora_metrics(self: Scheduler):
-        """Update LoRA pool metrics for monitoring and autoscaling."""
-        if not self.enable_lora:
-            return
-
-        try:
-            # Get LoRA memory pool stats
-            lora_manager = self.tp_worker.model_runner.lora_manager
-            if lora_manager is None or lora_manager.memory_pool is None:
-                return
-
-            mem_pool = lora_manager.memory_pool
-            slots_total = mem_pool.max_loras_per_batch
-
-            # Calculate active adapters from running batch
-            # This gives a true measure of current load for autoscaling purposes
-            active_lora_ids = set()
-
-            # For PP mode, check all running micro batches
-            if hasattr(self, "running_mbs") and self.running_mbs:
-                for batch in self.running_mbs:
-                    if batch and hasattr(batch, "reqs"):
-                        for req in batch.reqs:
-                            if hasattr(req, "lora_id") and req.lora_id is not None:
-                                active_lora_ids.add(req.lora_id)
-            # For normal mode, check running_batch
-            elif hasattr(self, "running_batch") and self.running_batch:
-                if hasattr(self.running_batch, "reqs"):
-                    for req in self.running_batch.reqs:
-                        if hasattr(req, "lora_id") and req.lora_id is not None:
-                            active_lora_ids.add(req.lora_id)
-
-            # Count active adapters (excluding None for base model)
-            slots_used = len(active_lora_ids)
-            utilization = slots_used / slots_total if slots_total > 0 else 0.0
-
-            # Update stats
-            self.stats.lora_pool_slots_used = slots_used
-            self.stats.lora_pool_slots_total = slots_total
-            self.stats.lora_pool_utilization = utilization
-
-        except Exception as e:
-            logger.warning(f"Failed to update LoRA metrics: {e}")
-
     def calculate_utilization(self: Scheduler):
         if self.disaggregation_mode == DisaggregationMode.PREFILL:
             self.stats.utilization = -1
@@ -559,8 +342,6 @@ class SchedulerMetricsMixin:
         if self.is_hybrid_swa:
             full_num_used, swa_num_used, *_ = self._get_swa_token_info()
             num_tokens = max(full_num_used, swa_num_used)
-        elif self.is_hybrid_ssm:
-            num_tokens = self._get_mamba_token_info()[0]
         else:
             num_tokens = self._get_token_info()[0]
 
@@ -586,15 +367,4 @@ class SchedulerMetricsMixin:
 
     @contextmanager
     def record_forward_metrics(self: Scheduler, batch: ScheduleBatch):
-        if not (self.enable_metrics and ENABLE_METRICS_DEVICE_TIMER):
-            yield
-            return
-
-        category = "forward_" + batch.forward_mode.name.lower()
-        with self.forward_pass_device_timer.wrap(
-            metadata=dict(
-                category=category,
-                dp_cooperation_info=batch.dp_cooperation_info,
-            ),
-        ):
-            yield
+        yield

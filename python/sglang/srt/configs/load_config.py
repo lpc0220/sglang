@@ -17,7 +17,6 @@ class LoadFormat(str, enum.Enum):
     NPCACHE = "npcache"
     DUMMY = "dummy"
     SHARDED_STATE = "sharded_state"
-    GGUF = "gguf"
     BITSANDBYTES = "bitsandbytes"
     MISTRAL = "mistral"
     LAYERED = "layered"

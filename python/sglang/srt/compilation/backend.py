@@ -19,7 +19,6 @@ from sglang.srt.compilation.compilation_config import CompilationConfig
 from sglang.srt.compilation.compilation_counter import compilation_counter
 from sglang.srt.compilation.compiler_interface import EagerAdapter, InductorAdaptor
 from sglang.srt.compilation.cuda_piecewise_backend import CUDAPiecewiseBackend
-from sglang.srt.compilation.npu_piecewise_backend import NPUPiecewiseBackend
 from sglang.srt.compilation.pass_manager import PostGradPassManager
 from sglang.srt.utils.common import rank0_log
 

@@ -86,13 +86,6 @@ def handle_attention_trtllm_mla(attn, forward_batch):
         return _dispatch_mla_subtype(attn, forward_batch)
 
 
-def handle_attention_aiter(attn, forward_batch):
-    if forward_batch.forward_mode.is_extend_without_speculative():
-        return AttnForwardMethod.MHA
-    else:
-        return AttnForwardMethod.MLA
-
-
 def handle_attention_nsa(attn, forward_batch):
     """
     Dispatch logic is centralized in NativeSparseAttnBackend.set_nsa_prefill_impl and executed
@@ -127,6 +120,5 @@ def handle_attention_triton(attn, forward_batch):
 AttentionBackendRegistry.register("flashinfer", handle_attention_flashinfer)
 AttentionBackendRegistry.register("cutlass_mla", handle_attention_cutlass_mla)
 AttentionBackendRegistry.register("trtllm_mla", handle_attention_trtllm_mla)
-AttentionBackendRegistry.register("aiter", handle_attention_aiter)
 AttentionBackendRegistry.register("nsa", handle_attention_nsa)
 AttentionBackendRegistry.register("triton", handle_attention_triton)

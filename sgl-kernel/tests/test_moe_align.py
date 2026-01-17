@@ -7,13 +7,6 @@ import triton.language as tl
 from sgl_kernel import moe_align_block_size, moe_sum
 
 
-def is_hip() -> bool:
-    return torch.version.hip is not None
-
-
-_is_hip = is_hip()
-
-
 def ceil_div(a, b):
     return (a + b - 1) // b
 
@@ -259,7 +252,6 @@ def test_moe_align_block_size_compare_implementations(
 @pytest.mark.parametrize("topk", [2, 6])
 @pytest.mark.parametrize("k", [128, 511, 1024])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-@pytest.mark.skipif(_is_hip, reason="Skip for AMD GPU")
 def test_moe_sum(m: int, topk: int, k: int, dtype: torch.dtype):
     input = torch.randn((m, topk, k), device="cuda", dtype=dtype)
     actual = torch.empty((m, k), device="cuda", dtype=dtype)

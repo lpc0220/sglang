@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 import torch
 
-from sglang.srt.dllm.config import DllmConfig
 from sglang.srt.environ import envs
 from sglang.srt.layers.attention.base_attn_backend import AttentionBackend
 from sglang.srt.layers.attention.utils import create_flashinfer_kv_indices_triton
@@ -127,9 +126,8 @@ class FlashInferAttnBackend(AttentionBackend):
             model_runner.server_args.multi_item_scoring_delimiter
         )
 
-        # FIXME: remove dllm workarounds from flashinfer
-        self.dllm_config = DllmConfig.from_server_args(model_runner.server_args)
-        self.is_dllm_model = self.dllm_config is not None
+        self.dllm_config = None
+        self.is_dllm_model = False
 
         # Parse constants
         self.decode_use_tensor_cores = should_use_tensor_core(
@@ -159,17 +157,8 @@ class FlashInferAttnBackend(AttentionBackend):
             self.num_wrappers = 1
             self.dispatch_reason = None
 
-        # Qwen2/Qwen3 models require higher flashinfer workspace size
-        if (
-            "Qwen2ForCausalLM" in model_runner.model_config.hf_config.architectures
-            or "Qwen3ForCausalLM" in model_runner.model_config.hf_config.architectures
-            or "MiMoForCausalLM" in model_runner.model_config.hf_config.architectures
-            or "Qwen3VLForConditionalGeneration"
-            in model_runner.model_config.hf_config.architectures
-            or "Qwen3VLMoeForConditionalGeneration"
-            in model_runner.model_config.hf_config.architectures
-        ):
-            envs.SGLANG_FLASHINFER_WORKSPACE_SIZE.set(512 * 1024 * 1024)
+        # DeepSeek-only build: Qwen/MiMo model checks removed
+        # DeepSeek models use default flashinfer workspace size
 
         # When deterministic inference is enabled, tensor cores should be used for decode
         # Also set split tile sizes for prefill and decode from environment variables, and disable kv split for cuda graph

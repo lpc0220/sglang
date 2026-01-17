@@ -46,9 +46,8 @@ if _is_cuda:
 
     from sgl_kernel import (
         fused_add_rmsnorm,
-        gemma_fused_add_rmsnorm,
-        gemma_rmsnorm,
         rmsnorm)
+    # DeepSeek-only build: gemma_fused_add_rmsnorm and gemma_rmsnorm removed
 
 logger = logging.getLogger(__name__)
 
@@ -102,18 +101,6 @@ class RMSNorm(MultiPlatformOp):
             return x, residual
         out = rmsnorm(x, self.weight.data, self.variance_epsilon)
         return out
-
-    def forward_npu(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if residual is not None:
-            out, _, residual_out = torch_npu.npu_add_rms_norm(
-                residual, x, self.weight.data, self.variance_epsilon
-            )
-            return out, residual_out
-        return torch_npu.npu_rms_norm(x, self.weight.data, self.variance_epsilon)[0]
 
     def forward_native(
         self,
@@ -170,26 +157,6 @@ class RMSNorm(MultiPlatformOp):
             return x
         else:
             return x, residual
-
-    def forward_cpu(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        return self.forward_native(x, residual, **kwargs)
-
-    def forward_xpu(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if self.variance_size_override is not None:
-            return self.forward_native(x, residual, **kwargs)
-        if residual is not None:
-            fused_add_rmsnorm(x, residual, self.weight.data, self.variance_epsilon)
-            return x, residual
-        out = rmsnorm(x, self.weight.data, self.variance_epsilon)
-        return out
 
     def forward_with_allreduce_fusion(
         self,
@@ -261,118 +228,6 @@ class LayerNorm(MultiPlatformOp):
             bias=bias,
             eps=self.variance_epsilon).to(orig_dtype)
 
-    def forward_npu(
-        self,
-        x: torch.Tensor,
-        **kwargs) -> torch.Tensor:
-        return self.forward_native(x, **kwargs)
-
-    def forward_cpu(
-        self,
-        x: torch.Tensor,
-        **kwargs) -> torch.Tensor:
-        return self.forward_native(x, **kwargs)
 
 
-class GemmaRMSNorm(MultiPlatformOp):
-    def __init__(
-        self,
-        hidden_size: int,
-        eps: float = 1e-6) -> None:
-        super().__init__()
-        self.weight = nn.Parameter(torch.zeros(hidden_size))
-        self.variance_epsilon = eps
-
-    def _forward_impl(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if residual is not None:
-            gemma_fused_add_rmsnorm(
-                x, residual, self.weight.data, self.variance_epsilon
-            )
-            return x, residual
-        out = gemma_rmsnorm(x, self.weight.data, self.variance_epsilon)
-        return out
-
-    def forward_native(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        orig_dtype = x.dtype
-        if residual is not None:
-            x = x + residual
-            residual = x
-
-        x = x.float()
-        variance = x.pow(2).mean(dim=-1, keepdim=True)
-        x = x * torch.rsqrt(variance + self.variance_epsilon)
-        x = x * (1.0 + self.weight.float())
-        x = x.to(orig_dtype)
-        return x if residual is None else (x, residual)
-
-    def forward_cuda(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        return self._forward_impl(x, residual, **kwargs)
-
-    def forward_cpu(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        return self.forward_native(x, residual, **kwargs)
-
-    def forward_npu(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if residual is not None:
-            x = x + residual
-            residual = x
-
-        x, _ = torch_npu.npu_gemma_rms_norm(x, self.weight, self.variance_epsilon)
-        return x if residual is None else (x, residual)
-
-    def forward_xpu(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-        **kwargs) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        return self._forward_impl(x, residual, **kwargs)
-
-
-class Gemma3RMSNorm(MultiPlatformOp):
-    def __init__(self, dim: int, eps: float = 1e-6):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.zeros(dim))
-        # Re-dispatch
-
-    def _norm(self, x):
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
-    def forward_native(self, x, **kwargs):
-        output = self._norm(x.float())
-        # Llama does x.to(float16) * w whilst Gemma3 is (x * w).to(float16)
-        # See https://github.com/huggingface/transformers/pull/29402
-        output = output * (1.0 + self.weight.float())
-        return output.type_as(x)
-
-    def forward_cpu(self, x, **kwargs):
-        return self.forward_native(x, **kwargs)
-
-    def forward_cuda(self, x, **kwargs):
-        return self.forward_native(x, **kwargs)
-
-    def forward_npu(self, x, **kwargs):
-        output, _ = torch_npu.npu_gemma_rms_norm(x, self.weight, self.eps)
-        return output
-
-    def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}"
+# DeepSeek-only build: GemmaRMSNorm and Gemma3RMSNorm classes removed

@@ -242,18 +242,12 @@ class ForwardBatch:
     # The sum of all sequence lengths
     seq_lens_sum: int
 
-    # The original sequence length without being chunked. Qwen-1M related.
+    # The original sequence length without being chunked.
     orig_seq_lens: Optional[torch.Tensor] = None
 
     # The indices of output tokens in the token_to_kv_pool_swa
     # TODO(shiyang, biao): integrate out_cache_loc_swa into multiple attention backends
     out_cache_loc_swa: Optional[torch.Tensor] = None
-    # The indices to track mamba state with
-    mamba_track_indices: Optional[torch.Tensor] = None  # shape: [b], int64
-    # The mask to track mamba state if needed
-    mamba_track_mask: Optional[torch.Tensor] = None  # shape: [b], bool
-    # The seqlens to track mamba state if masked, prefill only.
-    mamba_track_seqlens: Optional[torch.Tensor] = None  # shape: [b], int64
 
     # Optional seq_lens on cpu
     seq_lens_cpu: Optional[torch.Tensor] = None
@@ -327,8 +321,7 @@ class ForwardBatch:
     encoder_lens_cpu: Optional[List[int]] = None
     encoder_out_cache_loc: Optional[torch.Tensor] = None
 
-    # For LoRA
-    lora_ids: Optional[List[str]] = None
+    # LoRA removed in DeepSeek-only build
 
     # For input embeddings
     input_embeds: Optional[torch.Tensor] = None
@@ -376,7 +369,7 @@ class ForwardBatch:
     num_token_non_padded: Optional[torch.Tensor] = None  # scalar tensor
     num_token_non_padded_cpu: int = None
 
-    # For Qwen2-VL
+    # For multi-dimensional RoPE (M-RoPE) positions
     mrope_positions: torch.Tensor = None
 
     # For two-batch overlap
@@ -406,9 +399,6 @@ class ForwardBatch:
             req_pool_indices=batch.req_pool_indices,
             seq_lens=batch.seq_lens,
             out_cache_loc=batch.out_cache_loc,
-            mamba_track_indices=batch.mamba_track_indices,
-            mamba_track_mask=batch.mamba_track_mask,
-            mamba_track_seqlens=batch.mamba_track_seqlens,
             mm_inputs=batch.multimodal_inputs,
             encoder_cached=batch.encoder_cached,
             encoder_lens=batch.encoder_lens,
@@ -424,7 +414,7 @@ class ForwardBatch:
             can_run_dp_cuda_graph=batch.can_run_dp_cuda_graph,
             global_forward_mode=batch.global_forward_mode,
             is_prefill_only=batch.is_prefill_only,
-            lora_ids=batch.lora_ids,
+            # LoRA removed in DeepSeek-only build
             sampling_info=batch.sampling_info,
             req_to_token_pool=model_runner.req_to_token_pool,
             token_to_kv_pool=model_runner.token_to_kv_pool,
@@ -529,10 +519,6 @@ class ForwardBatch:
                 ret._compute_spec_mrope_positions(model_runner, batch)
             else:
                 ret._compute_mrope_positions(model_runner, batch)
-
-        # Init lora information
-        if model_runner.server_args.enable_lora:
-            model_runner.lora_manager.prepare_lora_batch(ret)
 
         return ret
 
@@ -862,7 +848,7 @@ class ForwardBatch:
         # padding
         self.input_ids = self._pad_tensor_to_size(self.input_ids, num_tokens)
         self.req_pool_indices = self._pad_tensor_to_size(self.req_pool_indices, bs)
-        self.lora_ids.extend((bs - len(self.lora_ids)) * [None])
+        # LoRA removed in DeepSeek-only build
 
         seq_len_fill_value = (
             model_runner.attn_backend.get_cuda_graph_seq_len_fill_value()
@@ -882,17 +868,6 @@ class ForwardBatch:
         if self.encoder_lens is not None:
             self.encoder_lens = self._pad_tensor_to_size(self.encoder_lens, bs)
         self.positions = self._pad_tensor_to_size(self.positions, num_tokens)
-        if self.mamba_track_indices is not None:
-            self.mamba_track_indices = self._pad_tensor_to_size(
-                self.mamba_track_indices, bs
-            )
-        if self.mamba_track_mask is not None:
-            self.mamba_track_mask = self._pad_tensor_to_size(self.mamba_track_mask, bs)
-        if self.mamba_track_seqlens is not None:
-            self.mamba_track_seqlens = self._pad_tensor_to_size(
-                self.mamba_track_seqlens, bs
-            )
-
         if self.mrope_positions is not None:
             self.mrope_positions = self._pad_tensor_to_size(self.mrope_positions, bs)
 

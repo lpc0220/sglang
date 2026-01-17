@@ -192,7 +192,6 @@ def enable_nextn_moe_bf16_cast_to_fp8(quant_config):
 
 
 FORWARD_ABSORB_CORE_ATTENTION_BACKENDS = [
-    "fa3",
     "nsa",
     "flashinfer",
     "cutlass_mla",
@@ -1263,18 +1262,6 @@ class DeepseekV2AttentionMLA(nn.Module):
             inner_state = self.forward_absorb_fused_mla_rope_prepare(
                 positions, hidden_states, forward_batch, zero_allocator
             )
-        elif attn_forward_method == AttnForwardMethod.MHA_NPU:
-            inner_state = forward_mha_prepare_npu(
-                self, positions, hidden_states, forward_batch, zero_allocator
-            )
-        elif attn_forward_method == AttnForwardMethod.MLA_NPU:
-            inner_state = forward_mla_prepare_npu(
-                self, positions, hidden_states, forward_batch, zero_allocator
-            )
-        elif attn_forward_method == AttnForwardMethod.DSA_NPU:
-            inner_state = forward_dsa_prepare_npu(
-                self, positions, hidden_states, forward_batch, zero_allocator
-            )
         else:
             raise NotImplementedError
         return None, attn_forward_method, forward_batch, inner_state
@@ -1296,12 +1283,6 @@ class DeepseekV2AttentionMLA(nn.Module):
             return self.forward_absorb_core(*inner_state)
         elif attn_forward_method == AttnForwardMethod.MLA_FUSED_ROPE:
             return self.forward_absorb_fused_mla_rope_core(*inner_state)
-        elif attn_forward_method == AttnForwardMethod.MHA_NPU:
-            return forward_mha_core_npu(self, *inner_state)
-        elif attn_forward_method == AttnForwardMethod.MLA_NPU:
-            return forward_mla_core_npu(self, *inner_state)
-        elif attn_forward_method == AttnForwardMethod.DSA_NPU:
-            return forward_dsa_core_npu(self, *inner_state)
         else:
             raise NotImplementedError
 
@@ -2067,14 +2048,7 @@ class DeepseekV2AttentionMLA(nn.Module):
             k = k_nope.new_empty(*k_shape)
             concat_mla_k(k=k, k_nope=k_nope, k_rope=k_pe)
         elif _is_cuda:
-            # fa3 mha support fp8 inputs
-            if (
-                self.current_attention_backend == "fa3"
-                and self.kv_cache_dtype != "auto"
-            ):
-                attn_dtype = forward_batch.token_to_kv_pool.dtype
-            else:
-                attn_dtype = k_nope.dtype
+            attn_dtype = k_nope.dtype
             k = k_nope.new_empty(*k_shape, dtype=attn_dtype)
             concat_and_cast_mha_k_triton(k, k_nope, k_pe)
         else:
@@ -2374,11 +2348,7 @@ class DeepseekV2Model(nn.Module):
         else:
             self.embed_tokens = PPMissingLayer()
 
-        self.alt_stream = (
-            torch.cuda.Stream()
-            if _is_cuda or envs.SGLANG_NPU_USE_MULTI_STREAM.get()
-            else None
-        )
+        self.alt_stream = torch.cuda.Stream() if _is_cuda else None
 
         self.layers, self.start_layer, self.end_layer = make_layers(
             config.num_hidden_layers,

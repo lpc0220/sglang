@@ -168,7 +168,6 @@ class Envs:
 
     # SGLang CI
     SGLANG_IS_IN_CI = EnvBool(False)
-    SGLANG_IS_IN_CI_AMD = EnvBool(False)
     SGLANG_TEST_MAX_RETRY = EnvInt(None)
 
     # Test & Debug
@@ -263,16 +262,6 @@ class Envs:
     MOONCAKE_MASTER_METRICS_PORT = EnvInt(9003)
     MOONCAKE_CHECK_SERVER = EnvBool(False)
     MOONCAKE_STANDALONE_STORAGE = EnvBool(False)
-
-    # AMD & ROCm
-    SGLANG_USE_AITER = EnvBool(False)
-    SGLANG_ROCM_FUSED_DECODE_MLA = EnvBool(False)
-    SGLANG_ROCM_DISABLE_LINEARQUANT = EnvBool(False)
-
-    # NPU
-    SGLANG_NPU_DISABLE_ACL_FORMAT_WEIGHT = EnvBool(False)
-    SGLANG_NPU_USE_MULTI_STREAM = EnvBool(False)
-    SGLANG_NPU_USE_MLAPO = EnvBool(False)
 
     # Quantization
     SGLANG_INT4_WEIGHT = EnvBool(False)

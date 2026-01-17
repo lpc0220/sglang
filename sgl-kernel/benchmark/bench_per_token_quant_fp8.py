@@ -16,24 +16,15 @@ except ImportError:
     ops = None
     VLLM_AVAILABLE = False
 
-from sglang.srt.utils import is_hip
-
-_is_hip = is_hip()
-
 # CI environment detection
 IS_CI = (
     os.getenv("CI", "false").lower() == "true"
     or os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
 )
 
-fp8_type_ = torch.float8_e4m3fnuz if _is_hip else torch.float8_e4m3fn
-
-# Get correct FP8 E4M3 maximum value
-if _is_hip:
-    FP8_E4M3_MAX = 224.0  # ROCM uses 224.0
-else:
-    # For CUDA, get the actual max value from the type
-    FP8_E4M3_MAX = float(torch.finfo(fp8_type_).max)
+# NVIDIA CUDA only - use standard FP8 type
+fp8_type_ = torch.float8_e4m3fn
+FP8_E4M3_MAX = float(torch.finfo(fp8_type_).max)
 
 
 def torch_per_token_quant_fp8(

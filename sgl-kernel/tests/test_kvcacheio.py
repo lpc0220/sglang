@@ -11,9 +11,6 @@ from sgl_kernel.kvcacheio import (
     transfer_kv_per_layer_mla,
 )
 
-from sglang.srt.utils import is_hip
-
-
 def ref_copy_with_indices(src_pool, dst_pool, src_indices, dst_indices):
     dst_pool[dst_indices] = src_pool[src_indices].to(dst_pool.device)
 
@@ -510,7 +507,6 @@ def test_transfer_kv_pf_direct(
     torch.set_default_dtype(original_dtype)
 
 
-@pytest.mark.skipif(is_hip(), reason="HIP is not supported for this test")
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
 @pytest.mark.parametrize("num_items_to_transfer", [256, 1024])
 @pytest.mark.parametrize("page_size", [16, 64, 128])

@@ -8,7 +8,6 @@ from sglang.srt.mem_cache.sparsity.algorithms.base_algorithm import BaseSparseAl
 from sglang.srt.mem_cache.sparsity.algorithms.deepseek_nsa import DeepSeekNSAAlgorithm
 from sglang.srt.mem_cache.sparsity.algorithms.quest_algorithm import QuestAlgorithm
 from sglang.srt.mem_cache.sparsity.backend.backend_adaptor import (
-    FlashAttentionAdaptor,
     NSABackendAdaptor,
 )
 from sglang.srt.mem_cache.sparsity.core.sparse_coordinator import (
@@ -52,10 +51,11 @@ def _create_backend_adaptor(
     if isinstance(sparse_algorithm, DeepSeekNSAAlgorithm):
         return NSABackendAdaptor(device, req_to_token_pool)
 
-    if backend in ["fa3", "flashattention"]:
-        return FlashAttentionAdaptor(device)
-
-    raise ValueError(f"Unknown attention backend: {backend}")
+    # FA3/FlashAttention backend removed from DeepSeek-only build
+    raise ValueError(
+        f"Unknown attention backend: {backend}. "
+        f"This DeepSeek-only build only supports NSA backend for sparse attention."
+    )
 
 
 def _parse_sparse_config(server_args) -> SparseConfig:

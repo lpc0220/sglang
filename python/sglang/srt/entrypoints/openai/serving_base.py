@@ -52,37 +52,6 @@ class OpenAIServingBase(ABC):
 
         return base_model, adapter_name
 
-    def _resolve_lora_path(
-        self,
-        request_model: str,
-        explicit_lora_path: Optional[Union[str, List[Optional[str]]]],
-    ) -> Optional[Union[str, List[Optional[str]]]]:
-        """Resolve LoRA adapter with priority: model parameter > explicit lora_path.
-
-        Returns adapter name or None. Supports both single values and lists (batches).
-        """
-        _, adapter_from_model = self._parse_model_parameter(request_model)
-
-        # Model parameter adapter takes precedence
-        if adapter_from_model is not None:
-            return adapter_from_model
-
-        # Fall back to explicit lora_path
-        return explicit_lora_path
-
-    def _validate_lora_enabled(self, adapter_name: str) -> None:
-        """Check that LoRA is enabled before attempting to use an adapter.
-
-        Raises ValueError with actionable guidance if --enable-lora flag is missing.
-        Adapter existence is validated later by TokenizerManager.lora_registry.
-        """
-        if not self.tokenizer_manager.server_args.enable_lora:
-            raise ValueError(
-                f"LoRA adapter '{adapter_name}' was requested, but LoRA is not enabled. "
-                "Please launch the server with --enable-lora flag and preload adapters "
-                "using --lora-paths or /load_lora_adapter endpoint."
-            )
-
     async def handle_request(
         self, request: OpenAIServingRequest, raw_request: Request
     ) -> Union[Any, StreamingResponse, ErrorResponse]:

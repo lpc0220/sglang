@@ -15,7 +15,6 @@ from sglang.srt.entrypoints.openai.protocol import (
 )
 from sglang.srt.entrypoints.openai.serving_base import OpenAIServingBase
 from sglang.srt.managers.io_struct import EmbeddingReqInput
-from sglang.srt.parser.conversation import generate_embedding_convs
 
 if TYPE_CHECKING:
     from sglang.srt.managers.template_manager import TemplateManager
@@ -96,16 +95,8 @@ class OpenAIServingEmbedding(OpenAIServingBase):
                     images.append(item.image if item.image is not None else None)
                     videos.append(item.video if item.video is not None else None)
 
-                generate_prompts = []
-                # Check if we have a chat template for multimodal embeddings
-                if self.template_manager.chat_template_name is not None:
-                    convs = generate_embedding_convs(
-                        texts, images, videos, self.template_manager.chat_template_name
-                    )
-                    for conv in convs:
-                        generate_prompts.append(conv.get_prompt())
-                else:
-                    generate_prompts = texts
+                # DeepSeek-only build: chat_template_name is always None
+                generate_prompts = texts
 
                 if len(generate_prompts) == 1:
                     prompt_kwargs = {

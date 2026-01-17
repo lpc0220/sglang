@@ -21,7 +21,7 @@ class EngineBase(ABC):
         logprob_start_len: Optional[Union[List[int], int]] = None,
         top_logprobs_num: Optional[Union[List[int], int]] = None,
         token_ids_logprob: Optional[Union[List[List[int]], List[int]]] = None,
-        lora_path: Optional[Union[List[Optional[str]], Optional[str]]] = None,
+        # LoRA removed in DeepSeek-only build
         custom_logit_processor: Optional[Union[List[str], str]] = None,
         return_hidden_states: Optional[bool] = None,
         stream: Optional[bool] = None,
@@ -47,14 +47,6 @@ class EngineBase(ABC):
         flush_cache: bool = True,
     ):
         """Update model weights with in-memory tensor data."""
-        pass
-
-    def load_lora_adapter(self, lora_name: str, lora_path: str):
-        """Load a new LoRA adapter without re-launching the engine."""
-        pass
-
-    def unload_lora_adapter(self, lora_name: str):
-        """Unload a LoRA adapter without re-launching the engine."""
         pass
 
     @abstractmethod

@@ -54,12 +54,15 @@ class WeightChecker:
         yield from self._model_runner.model.named_buffers()
 
 
+def _get_tensor_info(t: torch.Tensor) -> str:
+    """Get basic tensor info for debugging. DeepSeek-only build: simplified from debug_utils."""
+    return f"shape={tuple(t.shape)}, dtype={t.dtype}, device={t.device}"
+
+
 def _check_tensors(
     expect_tensors: Iterable[Tuple[str, bool, torch.Tensor]],
     actual_tensors: Iterable[Tuple[str, bool, torch.Tensor]],
 ):
-    from sglang.srt.debug_utils.dumper import get_tensor_info
-
     good_names = []
     error_messages = []
     info_messages = []
@@ -87,8 +90,8 @@ def _check_tensors(
                 f"name={name} "
                 f"max_abs_err={abs_diff.max()} "
                 f"mean_abs_err={abs_diff.mean()} "
-                f"{get_tensor_info(expect)=} "
-                f"{get_tensor_info(actual)=} "
+                f"expect={_get_tensor_info(expect)} "
+                f"actual={_get_tensor_info(actual)} "
             )
             (error_messages if should_compare else info_messages).append(msg)
 
@@ -119,8 +122,6 @@ def _random_like(t: torch.Tensor):
 def _postprocess_tensors(
     raw: Dict[str, torch.Tensor]
 ) -> Iterable[Tuple[str, bool, torch.Tensor]]:
-    from sglang.srt.debug_utils.dumper import get_tensor_info
-
     skip_compare_names = []
 
     # dequant fp8
@@ -150,7 +151,7 @@ def _postprocess_tensors(
             yield name, True, w_dequant
         except Exception as e:
             e.add_note(
-                f"when handling {name=} {get_tensor_info(w_q)=} {get_tensor_info(w_s)=}"
+                f"when handling {name=} w_q={_get_tensor_info(w_q)} w_s={_get_tensor_info(w_s)}"
             )
             raise
 

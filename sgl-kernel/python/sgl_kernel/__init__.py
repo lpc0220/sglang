@@ -121,8 +121,7 @@ from sgl_kernel.top_k import (
 )
 from sgl_kernel.version import __version__
 
-if torch.version.hip is not None:
-    from sgl_kernel.elementwise import gelu_quick
+# HIP gelu_quick import removed - NVIDIA CUDA-only build
 
 
 def create_greenctx_stream_by_value(*args, **kwargs):

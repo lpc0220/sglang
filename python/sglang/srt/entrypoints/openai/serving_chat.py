@@ -44,15 +44,181 @@ from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from sglang.srt.function_call.json_array_parser import JsonArrayParser
 from sglang.srt.function_call.utils import get_json_schema_constraint
 from sglang.srt.managers.io_struct import GenerateReqInput
-from sglang.srt.parser.conversation import generate_chat_conv
-from sglang.srt.parser.jinja_template_utils import process_content_for_template_format
-from sglang.srt.parser.reasoning_parser import ReasoningParser
 
 if TYPE_CHECKING:
     from sglang.srt.managers.template_manager import TemplateManager
     from sglang.srt.managers.tokenizer_manager import TokenizerManager
 
 logger = logging.getLogger(__name__)
+
+
+def _process_content_for_template_format(
+    msg_dict: Dict[str, Any],
+    template_content_format: str,
+    image_data: Optional[List] = None,
+    video_data: Optional[List] = None,
+    audio_data: Optional[List] = None,
+    modalities: Optional[List] = None,
+) -> Dict[str, Any]:
+    """
+    Process message content based on the detected template format.
+    DeepSeek-only build: Inlined from parser module.
+    """
+    content = msg_dict.get("content")
+
+    if content is None:
+        msg_dict["content"] = ""
+        return msg_dict
+
+    if isinstance(content, str):
+        return msg_dict
+
+    if template_content_format == "openai":
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    item_type = item.get("type")
+                    if item_type == "image_url" and image_data is not None:
+                        image_url = item.get("image_url", {})
+                        if isinstance(image_url, dict):
+                            url = image_url.get("url")
+                            if url:
+                                image_data.append({
+                                    "url": url,
+                                    "detail": image_url.get("detail", "auto")
+                                })
+                    elif item_type == "video_url" and video_data is not None:
+                        video_url = item.get("video_url", {})
+                        if isinstance(video_url, dict):
+                            url = video_url.get("url")
+                            if url:
+                                video_data.append(url)
+                    elif item_type == "audio_url" and audio_data is not None:
+                        audio_url = item.get("audio_url", {})
+                        if isinstance(audio_url, dict):
+                            url = audio_url.get("url")
+                            if url:
+                                audio_data.append(url)
+        return msg_dict
+
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                item_type = item.get("type")
+                if item_type == "text":
+                    text = item.get("text", "")
+                    text_parts.append(text)
+                elif item_type == "image_url" and image_data is not None:
+                    image_url = item.get("image_url", {})
+                    if isinstance(image_url, dict):
+                        url = image_url.get("url")
+                        if url:
+                            image_data.append({
+                                "url": url,
+                                "detail": image_url.get("detail", "auto")
+                            })
+                            text_parts.append("<image>")
+                elif item_type == "video_url" and video_data is not None:
+                    video_url = item.get("video_url", {})
+                    if isinstance(video_url, dict):
+                        url = video_url.get("url")
+                        if url:
+                            video_data.append(url)
+                            text_parts.append("<video>")
+                elif item_type == "audio_url" and audio_data is not None:
+                    audio_url = item.get("audio_url", {})
+                    if isinstance(audio_url, dict):
+                        url = audio_url.get("url")
+                        if url:
+                            audio_data.append(url)
+                            text_parts.append("<audio>")
+            elif isinstance(item, str):
+                text_parts.append(item)
+
+        msg_dict["content"] = "\n".join(text_parts) if text_parts else ""
+
+    return msg_dict
+
+
+class __ReasoningParser:
+    """DeepSeek-only build: Inlined reasoning parser for <think>...</think> tags."""
+
+    def __init__(
+        self,
+        model_type: str = "deepseek-r1",
+        stream_reasoning: bool = False,
+        force_reasoning: bool = True,
+    ):
+        self.model_type = model_type
+        self.stream_reasoning = stream_reasoning
+        self.force_reasoning = force_reasoning
+        self.think_start = "<think>"
+        self.think_end = "</think>"
+        self._buffer = ""
+        self._in_thinking = False
+        self._reasoning_complete = False
+        self._reasoning_content = ""
+
+    def parse_non_stream(self, text: str) -> tuple:
+        """Parse reasoning content from complete response."""
+        import re
+        reasoning_text = None
+        remaining_text = text
+        pattern = re.compile(
+            rf"{re.escape(self.think_start)}(.*?){re.escape(self.think_end)}",
+            re.DOTALL
+        )
+        match = pattern.search(text)
+        if match:
+            reasoning_text = match.group(1).strip()
+            remaining_text = text[:match.start()] + text[match.end():]
+            remaining_text = remaining_text.strip()
+        return reasoning_text, remaining_text
+
+    def parse_stream_chunk(self, chunk: str) -> tuple:
+        """Parse streaming chunk for reasoning content."""
+        self._buffer += chunk
+        reasoning_delta = None
+        content_delta = None
+
+        if not self._in_thinking:
+            think_start_idx = self._buffer.find(self.think_start)
+            if think_start_idx != -1:
+                before_think = self._buffer[:think_start_idx]
+                if before_think:
+                    content_delta = before_think
+                self._buffer = self._buffer[think_start_idx + len(self.think_start):]
+                self._in_thinking = True
+            else:
+                safe_len = max(0, len(self._buffer) - len(self.think_start))
+                if safe_len > 0:
+                    content_delta = self._buffer[:safe_len]
+                    self._buffer = self._buffer[safe_len:]
+
+        if self._in_thinking and not self._reasoning_complete:
+            think_end_idx = self._buffer.find(self.think_end)
+            if think_end_idx != -1:
+                reasoning_delta = self._buffer[:think_end_idx]
+                self._reasoning_content += reasoning_delta
+                self._buffer = self._buffer[think_end_idx + len(self.think_end):]
+                self._in_thinking = False
+                self._reasoning_complete = True
+            else:
+                safe_len = max(0, len(self._buffer) - len(self.think_end))
+                if safe_len > 0:
+                    reasoning_delta = self._buffer[:safe_len]
+                    self._reasoning_content += reasoning_delta
+                    self._buffer = self._buffer[safe_len:]
+
+        if self._reasoning_complete and self._buffer:
+            content_delta = (content_delta or "") + self._buffer
+            self._buffer = ""
+
+        return reasoning_delta, content_delta, self._reasoning_complete
+
+    def get_reasoning_content(self) -> str:
+        return self._reasoning_content
 
 
 def _extract_max_dynamic_patch(request: ChatCompletionRequest):
@@ -103,12 +269,8 @@ class OpenAIServingChat(OpenAIServingBase):
                 f"Using default chat sampling params from model generation config: {self.default_sampling_params}",
             )
 
-        # Check if the model is a GPT-OSS model
-        self.is_gpt_oss = (
-            hasattr(self.tokenizer_manager.model_config, "hf_config")
-            and hasattr(self.tokenizer_manager.model_config.hf_config, "model_type")
-            and self.tokenizer_manager.model_config.hf_config.model_type == "gpt_oss"
-        )
+        # DeepSeek-only build: GPT-OSS model check removed
+        self.is_gpt_oss = False
 
         self.use_dpsk_v32_encoding = self._use_dpsk_v32_encoding()
 
@@ -210,16 +372,7 @@ class OpenAIServingChat(OpenAIServingBase):
         # Extract custom labels from raw request headers
         custom_labels = self.extract_custom_labels(raw_request)
 
-        # Resolve LoRA adapter from model parameter or explicit lora_path
-        lora_path = self._resolve_lora_path(request.model, request.lora_path)
-        if lora_path:
-            first_adapter = (
-                lora_path
-                if isinstance(lora_path, str)
-                else next((a for a in lora_path if a), None)
-            )
-            if first_adapter:
-                self._validate_lora_enabled(first_adapter)
+        # LoRA removed in DeepSeek-only build
 
         img_max_dynamic_patch, vid_max_dynamic_patch = _extract_max_dynamic_patch(
             request
@@ -236,7 +389,7 @@ class OpenAIServingChat(OpenAIServingBase):
             stream=request.stream,
             return_text_in_logprobs=True,
             modalities=processed_messages.modalities,
-            lora_path=lora_path,
+            # LoRA removed in DeepSeek-only build
             bootstrap_host=request.bootstrap_host,
             bootstrap_port=request.bootstrap_port,
             bootstrap_room=request.bootstrap_room,
@@ -260,10 +413,6 @@ class OpenAIServingChat(OpenAIServingBase):
         self, request: ChatCompletionRequest, is_multimodal: bool
     ) -> MessageProcessingResult:
         """Process chat messages and apply chat template"""
-        # GptOss model needs to keep special tokens for harmony parsing
-        if self.is_gpt_oss:
-            request.skip_special_tokens = False
-
         tool_call_constraint = None
 
         # Apply chat template and its stop strings
@@ -292,12 +441,8 @@ class OpenAIServingChat(OpenAIServingBase):
                 )
                 tool_call_constraint = ("json_schema", json_schema)
 
-        # Use chat template
-        if self.template_manager.chat_template_name is None:
-            result = self._apply_jinja_template(request, tools, is_multimodal)
-        else:
-            result = self._apply_conversation_template(request, is_multimodal)
-
+        # DeepSeek-only build: Always use Jinja template (HuggingFace tokenizer)
+        result = self._apply_jinja_template(request, tools, is_multimodal)
         result.tool_call_constraint = tool_call_constraint
         return result
 
@@ -341,7 +486,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 msg_dict = message.model_dump()
 
                 # Process content based on detected template format
-                processed_msg = process_content_for_template_format(
+                processed_msg = _process_content_for_template_format(
                     msg_dict,
                     template_content_format,
                     image_data,
@@ -447,70 +592,8 @@ class OpenAIServingChat(OpenAIServingBase):
             stop=stop,
         )
 
-    def _apply_conversation_template(
-        self,
-        request: ChatCompletionRequest,
-        is_multimodal: bool,
-    ) -> MessageProcessingResult:
-        """Apply conversation template"""
-        prompt = ""
-        prompt_ids = []
-        conv = generate_chat_conv(request, self.template_manager.chat_template_name)
-
-        # If we should continue the final assistant message, adjust the conversation.
-        if (
-            request.continue_final_message
-            and request.messages
-            and request.messages[-1].role == "assistant"
-        ):
-            # Remove the auto-added blank assistant turn, if present.
-            if conv.messages and conv.messages[-1][1] is None:
-                conv.messages.pop()
-            # Rebuild the prompt from the conversation.
-            prompt = conv.get_prompt()
-            # Strip trailing stop tokens or separators that indicate end-of-assistant.
-            if isinstance(conv.stop_str, list):
-                for stop_token in conv.stop_str:
-                    if prompt.endswith(stop_token):
-                        prompt = prompt[: -len(stop_token)]
-            elif isinstance(conv.stop_str, str) and prompt.endswith(conv.stop_str):
-                prompt = prompt[: -len(conv.stop_str)]
-            if conv.sep and prompt.endswith(conv.sep):
-                prompt = prompt[: -len(conv.sep)]
-            if getattr(conv, "sep2", None) and prompt.endswith(conv.sep2):
-                prompt = prompt[: -len(conv.sep2)]
-        else:
-            prompt = conv.get_prompt()
-            if self._get_reasoning_from_request(
-                request
-            ) and self.reasoning_parser not in ["qwen3", "qwen3-thinking", "glm4"]:
-                # qwen3 and glm4 think internally without a leading <think> token
-                prompt += "<think>"  # Note(Xinyuan): hard code thinking token
-
-        image_data = conv.image_data if conv.image_data else None
-        video_data = conv.video_data if conv.video_data else None
-        audio_data = conv.audio_data if conv.audio_data else None
-        modalities = conv.modalities if conv.modalities else []
-        stop = copy.copy(conv.stop_str or [] if not request.ignore_eos else [])
-
-        if request.stop:
-            if isinstance(request.stop, str):
-                stop.append(request.stop)
-            else:
-                stop.extend(request.stop)
-
-        if not is_multimodal:
-            prompt_ids = self.tokenizer_manager.tokenizer.encode(prompt)
-
-        return MessageProcessingResult(
-            prompt=prompt,
-            prompt_ids=prompt_ids,
-            image_data=image_data,
-            video_data=video_data,
-            audio_data=audio_data,
-            modalities=modalities,
-            stop=stop,
-        )
+    # DeepSeek-only build: _apply_conversation_template removed
+    # Uses _apply_jinja_template with HuggingFace tokenizer instead
 
     async def _handle_streaming_request(
         self,
@@ -819,7 +902,7 @@ class OpenAIServingChat(OpenAIServingBase):
                     or self._get_reasoning_from_request(request)
                 )
                 try:
-                    parser = ReasoningParser(
+                    parser = _ReasoningParser(
                         model_type=reasoning_parser,
                         stream_reasoning=False,
                         force_reasoning=is_force_reasoning,
@@ -942,19 +1025,9 @@ class OpenAIServingChat(OpenAIServingBase):
         history_tool_calls_cnt: int,
     ) -> str:
         """Process for generating a new and unique `tool_call_id`"""
-        if self.tool_call_parser != "kimi_k2":
-            # A simple uuid is sufficient for all models except for Kimi-K2.
-            tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
-            return tool_call_id
-        else:
-            # Align with Kimi-K2 format: functions.{name}:{index}
-            # Kimi-K2 allows multiple tool_calls in one message; SGLang sets call_item.tool_index to the *local* position inside that message.
-            # Therefore, the index must be corrected by using `history_tool_calls_cnt + call_item.tool_index` to ensure globally unique and properly ordered.
-            tool_call_id = f"functions.{call_item.name}:{history_tool_calls_cnt+call_item.tool_index}"
-            logger.debug(
-                f"Process tool call idx, parser: {self.tool_call_parser}, tool_call_id: {tool_call_id}, history_cnt: {history_tool_calls_cnt}"
-            )
-            return tool_call_id
+        # DeepSeek-only build: Simple UUID format for all tool calls
+        tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
+        return tool_call_id
 
     def _process_tool_calls(
         self,
@@ -1055,7 +1128,7 @@ class OpenAIServingChat(OpenAIServingBase):
         self,
         index: int,
         delta: str,
-        reasoning_parser_dict: Dict[int, ReasoningParser],
+        reasoning_parser_dict: Dict[int, _ReasoningParser],
         content: Dict[str, Any],
         request: ChatCompletionRequest,
     ) -> tuple[Optional[str], str]:
@@ -1065,7 +1138,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 self.template_manager.force_reasoning
                 or self._get_reasoning_from_request(request)
             )
-            reasoning_parser_dict[index] = ReasoningParser(
+            reasoning_parser_dict[index] = _ReasoningParser(
                 self.reasoning_parser,
                 request.stream_reasoning,
                 is_force_reasoning,
@@ -1076,8 +1149,7 @@ class OpenAIServingChat(OpenAIServingBase):
     def _get_history_tool_calls_cnt(self, request: ChatCompletionRequest) -> int:
         """Counts the number of tool calls in the request's message history.
 
-        NOTE: This method is only useful for models that include self-increasing
-        history tool call idx in tool calls id, such as kimi-k2
+        NOTE: This method counts tool calls in message history.
 
         Args:
             request: The chat completion request object.
@@ -1097,18 +1169,14 @@ class OpenAIServingChat(OpenAIServingBase):
         """Judge whether the request needs reasoning"""
         if not self.reasoning_parser:
             return False
+        # DeepSeek-only build: Only DeepSeek reasoning parsers supported
         if self.reasoning_parser in ["deepseek-v3"]:
             return (
                 request.chat_template_kwargs is not None
                 and request.chat_template_kwargs.get("thinking") is True
             )
-        if self.reasoning_parser in ["qwen3", "glm45", "nano_v3", "interns1"]:
-            # qwen3, glm45, nano_v3, and interns1 are reasoning by default
-            return (
-                not request.chat_template_kwargs
-                or request.chat_template_kwargs.get("enable_thinking", True) is True
-            )
-        return True  # default
+        # DeepSeek-R1 defaults to reasoning mode
+        return True
 
     async def _process_tool_call_stream(
         self,

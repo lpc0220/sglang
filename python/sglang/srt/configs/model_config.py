@@ -55,8 +55,6 @@ def is_deepseek_nsa(config: PretrainedConfig) -> bool:
             "DeepseekV3ForCausalLM",
             "DeepseekV32ForCausalLM",
             "DeepseekV3ForCausalLMNextN",
-            "MistralLarge3ForCausalLM",
-            "PixtralForConditionalGeneration",
         ]
         and getattr(config, "index_topk", None) is not None
     )
@@ -131,18 +129,7 @@ class ModelConfig:
 
         # Set enable_multimodal
         if enable_multimodal is None:
-            mm_disabled_models = [
-                "Gemma3ForConditionalGeneration",
-                "Llama4ForConditionalGeneration",
-                "Step3VLForConditionalGeneration",
-            ]
-            if self.hf_config.architectures[0] in mm_disabled_models:
-                enable_multimodal = False
-                logger.info(
-                    f"Multimodal is disabled for {self.hf_config.model_type}. To enable it, set --enable-multimodal."
-                )
-            else:
-                enable_multimodal = True
+            enable_multimodal = True
 
         # Config draft model
         self._config_draft_model()
@@ -260,38 +247,6 @@ class ModelConfig:
         ):
             self.hf_config.architectures[0] = "DeepseekV3ForCausalLMNextN"
 
-        if is_draft_model and self.hf_config.architectures[0] == "Glm4MoeForCausalLM":
-            self.hf_config.architectures[0] = "Glm4MoeForCausalLMNextN"
-
-        if (
-            is_draft_model
-            and self.hf_config.architectures[0] == "LongcatFlashForCausalLM"
-        ):
-            self.hf_config.architectures[0] = "LongcatFlashForCausalLMNextN"
-            self.hf_config.num_hidden_layers = self.hf_config.num_nextn_predict_layers
-
-        if is_draft_model and self.hf_config.architectures[0] == "MiMoForCausalLM":
-            self.hf_config.architectures[0] = "MiMoMTP"
-        if (
-            is_draft_model
-            and self.hf_config.architectures[0] == "MiMoV2FlashForCausalLM"
-        ):
-            self.hf_config.architectures[0] = "MiMoV2MTP"
-        if is_draft_model and self.hf_config.architectures[0] in [
-            "BailingMoeV2ForCausalLM",
-            "BailingMoeForCausalLM",
-        ]:
-            self.hf_config.architectures[0] = "BailingMoeForCausalLMNextN"
-        if (
-            is_draft_model
-            and self.hf_config.architectures[0] == "Ernie4_5_MoeForCausalLM"
-        ):
-            self.hf_config.architectures[0] = "Ernie4_5_MoeForCausalLMMTP"
-
-        if is_draft_model and self.hf_config.architectures[0] == "Qwen3NextForCausalLM":
-            self.hf_config.architectures[0] = "Qwen3NextForCausalLMMTP"
-            self.hf_config.num_nextn_predict_layers = 1
-
     def _derive_hybrid_model(self):
         # Use self.context_len after it has been initialized to prevent using context_len which may be None.
         self.is_hybrid_swa = is_hybrid_swa_model(self.hf_config.architectures)
@@ -304,10 +259,7 @@ class ModelConfig:
                     getattr(self.hf_text_config, "hybrid_layer_pattern", None))
             )
 
-        self.is_hybrid_swa_compress = self.hf_config.architectures[0] in [
-            "MiMoV2FlashForCausalLM",
-            "MiMoV2MTP",
-        ]
+        self.is_hybrid_swa_compress = False
 
     def _derive_context_length(self, context_length: int):
         is_draft_model = self.is_draft_model
@@ -360,12 +312,6 @@ class ModelConfig:
             or "DeepseekV32ForCausalLM" in self.hf_config.architectures
             or "DeepseekV3ForCausalLM" in self.hf_config.architectures
             or "DeepseekV3ForCausalLMNextN" in self.hf_config.architectures
-            or "LongcatFlashForCausalLM" in self.hf_config.architectures
-            or "LongcatFlashForCausalLMNextN" in self.hf_config.architectures
-            or "DotsVLMForCausalLM" in self.hf_config.architectures
-            or "MistralLarge3ForCausalLM" in self.hf_config.architectures
-            or "PixtralForConditionalGeneration" in self.hf_config.architectures
-            or "MistralLarge3ForCausalLMEagle" in self.hf_config.architectures
         ):
             self.head_dim = 256
             self.attention_arch = AttentionArch.MLA
@@ -389,49 +335,7 @@ class ModelConfig:
                 mscale = yarn_get_mscale(scaling_factor, float(mscale_all_dim))
                 self.scaling = self.scaling * mscale * mscale
 
-        elif "MiniCPM3ForCausalLM" in self.hf_config.architectures:
-            self.head_dim = 128
-            self.attention_arch = AttentionArch.MLA
-            self.kv_lora_rank = self.hf_config.kv_lora_rank
-            self.qk_rope_head_dim = self.hf_config.qk_rope_head_dim
-        elif "DeepseekVL2ForCausalLM" in self.hf_config.architectures and getattr(
-            self.hf_text_config, "use_mla", True
-        ):
-            self.head_dim = 256
-            self.attention_arch = AttentionArch.MLA
-            self.kv_lora_rank = self.hf_text_config.kv_lora_rank
-            self.qk_rope_head_dim = self.hf_text_config.qk_rope_head_dim
-        elif "KimiVLForConditionalGeneration" in self.hf_config.architectures:
-            self.head_dim = 256
-            self.attention_arch = AttentionArch.MLA
-            self.kv_lora_rank = self.hf_text_config.kv_lora_rank
-            self.qk_rope_head_dim = self.hf_text_config.qk_rope_head_dim
-            self.v_head_dim = self.hf_text_config.v_head_dim
-            self.qk_nope_head_dim = self.hf_text_config.qk_nope_head_dim
-        elif "KimiLinearForCausalLM" in self.hf_config.architectures:
-            self.head_dim = 72
-            self.attention_arch = AttentionArch.MLA
-            self.kv_lora_rank = self.hf_config.kv_lora_rank
-            self.qk_rope_head_dim = self.hf_config.qk_rope_head_dim
-            self.v_head_dim = self.hf_config.v_head_dim
-            self.qk_nope_head_dim = self.hf_config.qk_nope_head_dim
         else:
-            if (
-                "MistralModel" in self.hf_config.architectures
-                or "MixtralForCausalLM" in self.hf_config.architectures
-                or "MistralForCausalLM" in self.hf_config.architectures
-            ):
-                if getattr(self, "head_dim", None) is None:
-                    self.head_dim = (
-                        self.hf_config.hidden_size // self.hf_config.num_attention_heads
-                    )
-                    # In transformers==4.52.3, the head_dim is null in MistralConfig
-                    if (
-                        not hasattr(self.hf_text_config, "head_dim")
-                        or self.hf_text_config.head_dim is None
-                    ):
-                        setattr(self.hf_text_config, "head_dim", self.head_dim)
-
             self.attention_arch = AttentionArch.MHA
 
         self.num_attention_heads = self.hf_text_config.num_attention_heads
@@ -439,19 +343,11 @@ class ModelConfig:
             self.hf_text_config, "num_key_value_heads", None
         )
 
-        # for Dbrx and MPT models
-        if self.hf_config.model_type in ["dbrx", "mpt"]:
-            self.num_key_value_heads = getattr(
-                self.hf_config.attn_config, "kv_n_heads", None
-            )
-
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
         self.hidden_size = self.hf_text_config.hidden_size
         self.num_hidden_layers = self.hf_text_config.num_hidden_layers
         self.num_attention_layers = self.num_hidden_layers
-        if "LongcatFlashForCausalLM" in self.hf_config.architectures:
-            self.num_attention_layers = self.num_hidden_layers * 2
         self.num_nextn_predict_layers = getattr(
             self.hf_text_config, "num_nextn_predict_layers", None
         )
@@ -464,59 +360,12 @@ class ModelConfig:
         total_num_attention_heads = self.num_attention_heads
         return max(1, total_num_attention_heads // tensor_parallel_size)
 
-    # adapted from https://github.com/vllm-project/vllm/blob/main/vllm/config.py#L289
     def get_total_num_kv_heads(self) -> int:
         """Returns the total number of KV heads."""
-        # For GPTBigCode & Falcon:
-        # NOTE: for falcon, when new_decoder_architecture is True, the
-        # multi_query flag is ignored and we use n_head_kv for the number of
-        # KV heads.
-        falcon_model_types = ["falcon", "RefinedWeb", "RefinedWebModel"]
-        new_decoder_arch_falcon = (
-            self.hf_config.model_type in falcon_model_types
-            and getattr(self.hf_config, "new_decoder_architecture", False)
-        )
-        if not new_decoder_arch_falcon and getattr(
-            self.hf_text_config, "multi_query", False
-        ):
-            # Multi-query attention, only one KV head.
-            # Currently, tensor parallelism is not supported in this case.
-            return 1
-
-        # For DBRX and MPT
-        if self.hf_config.model_type in ["mpt"]:
-            if "kv_n_heads" in self.hf_config.attn_config:
-                return self.hf_config.attn_config["kv_n_heads"]
-            return self.hf_config.num_attention_heads
-        if self.hf_config.model_type in ["dbrx"]:
-            return getattr(
-                self.hf_config.attn_config,
-                "kv_n_heads",
-                self.hf_config.num_attention_heads)
-        if self.hf_config.model_type in ["nemotron-nas"]:
-            nkvh = {
-                self.hf_config.num_attention_heads // block.attention.n_heads_in_group
-                for block in self.hf_config.block_configs
-                if not block.attention.no_op
-            }
-            if len(nkvh) == 0:
-                raise RuntimeError("Couldn't determine number of kv heads")
-            if len(nkvh) > 1:
-                raise ValueError(
-                    "Variable GQA (VGQA) is not yet supported for nemotron-nas in sglang"
-                )
-            return next(iter(nkvh))
-
+        # Check common attributes for KV head count
         attributes = [
-            # For Falcon:
-            "n_head_kv",
+            "num_key_value_heads",  # Standard attribute
             "num_kv_heads",
-            # For LLaMA-2:
-            "num_key_value_heads",
-            # For ChatGLM:
-            "multi_query_group_num",
-            # For Step3
-            "num_attention_groups",
         ]
         for attr in attributes:
             num_kv_heads = getattr(self.hf_text_config, attr, None)
@@ -538,12 +387,7 @@ class ModelConfig:
 
     def get_swa_num_kv_heads(self, tensor_parallel_size) -> int:
         """Similar to get_num_kv_heads(), but for SWA."""
-        if not self.is_hybrid_swa_compress:
-            return 0
-
-        # For MiMoV2FlashForCausalLM models
-        total_num_kv_heads = self.hf_text_config.swa_num_key_value_heads
-        return max(1, total_num_kv_heads // tensor_parallel_size)
+        return 0
 
     # adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/config.py
     def _parse_quant_hf_config(self):
@@ -689,7 +533,6 @@ class ModelConfig:
     # adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/config.py
     def _verify_quantization(self) -> None:
         supported_quantization = [*QUANTIZATION_METHODS]
-        rocm_supported_quantization = []  # Not supported
         optimized_quantization_methods = [
             "fp8",
             "marlin",
@@ -897,19 +740,13 @@ class ModelConfig:
             model: The model name or path.
 
         """
-        from sglang.srt.connector import create_remote_connector
         from sglang.srt.utils import is_remote_url
 
         if is_remote_url(self.model_path):
-            logger.info("Pulling model configs from remote...")
-            # BaseConnector implements __del__() to clean up the local dir.
-            # Since config files need to exist all the time, so we DO NOT use
-            # with statement to avoid closing the client.
-            client = create_remote_connector(self.model_path)
-            if is_remote_url(self.model_path):
-                client.pull_files(allow_pattern=["*config.json"])
-                self.model_weights = self.model_path
-                self.model_path = client.get_local_dir()
+            raise NotImplementedError(
+                "Remote URL model loading removed in DeepSeek-only build. "
+                "Use local model path instead."
+            )
 
 
 # adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/config.py
@@ -938,21 +775,8 @@ def _get_and_verify_dtype(
         dtype = dtype.lower()
         if dtype == "auto":
             if config_dtype == torch.float32:
-                if config.model_type.startswith("gemma"):
-                    if config.model_type == "gemma":
-                        gemma_version = ""
-                    else:
-                        gemma_version = config.model_type[5]
-                    logger.info(
-                        f"For Gemma {gemma_version}, we downcast float32 to bfloat16 instead "
-                        "of float16 by default. Please specify `dtype` if you "
-                        "want to use float16."
-                    )
-                    torch_dtype = torch.bfloat16
-                else:
-                    # Following the common practice, we use float16 for float32
-                    # models.
-                    torch_dtype = torch.float16
+                # Following the common practice, we use float16 for float32 models.
+                torch_dtype = torch.float16
             else:
                 torch_dtype = config_dtype
         else:
@@ -982,79 +806,11 @@ def _get_and_verify_dtype(
 
 
 def is_generation_model(model_architectures: List[str], is_embedding: bool = False):
-    # We have two ways to determine whether a model is a generative model.
-    # 1. Check the model architecture
-    # 2. check the `is_embedding` server args
-
-    if (
-        "LlamaEmbeddingModel" in model_architectures
-        or "MistralModel" in model_architectures
-        or "LlamaForSequenceClassification" in model_architectures
-        or "LlamaForSequenceClassificationWithNormal_Weights" in model_architectures
-        or "InternLM2ForRewardModel" in model_architectures
-        or "Qwen2ForRewardModel" in model_architectures
-        or "Qwen2ForSequenceClassification" in model_architectures
-        or "Qwen3ForSequenceClassification" in model_architectures
-        or "CLIPModel" in model_architectures
-        or "BertModel" in model_architectures
-        or "Contriever" in model_architectures
-        or "BertForSequenceClassification" in model_architectures
-        or "XLMRobertaModel" in model_architectures
-        or "XLMRobertaForSequenceClassification" in model_architectures
-    ):
-        return False
-    else:
-        return not is_embedding
+    return not is_embedding
 
 
-multimodal_model_archs = [
-    "CLIPModel",
-    "DeepseekVL2ForCausalLM",
-    "Gemma3ForConditionalGeneration",
-    "Gemma3nForConditionalGeneration",
-    "Glm4vForConditionalGeneration",
-    "Glm4vMoeForConditionalGeneration",
-    "GlmAsrForConditionalGeneration",
-    "Grok1VForCausalLM",
-    "Grok1AForCausalLM",
-    "LlavaLlamaForCausalLM",
-    "Llama4ForConditionalGeneration",
-    "LlavaMistralForCausalLM",
-    "LlavaQwenForCausalLM",
-    "LlavaForConditionalGeneration",
-    "LlavaVidForCausalLM",
-    "MiniCPMO",
-    "MiniCPMV",
-    "Mistral3ForConditionalGeneration",
-    "MultiModalityCausalLM",
-    "MllamaForConditionalGeneration",
-    "NemotronH_Nano_VL_V2",
-    "PixtralForConditionalGeneration",
-    "Qwen2AudioForConditionalGeneration",
-    "Qwen2VLForConditionalGeneration",
-    "Qwen2_5_VLForConditionalGeneration",
-    "Qwen3VLForConditionalGeneration",
-    "Qwen3VLMoeForConditionalGeneration",
-    "Qwen3OmniMoeForConditionalGeneration",
-    "KimiVLForConditionalGeneration",
-    "InternVLChatModel",
-    "InternS1ForConditionalGeneration",
-    "Phi4MMForCausalLM",
-    "Step3VLForConditionalGeneration",
-    "POINTSV15ChatModel",
-    "DotsVLMForCausalLM",
-    "DotsOCRForCausalLM",
-    "Sarashina2VisionForCausalLM",
-    "NVILAForConditionalGeneration",
-    "NVILALiteForConditionalGeneration",
-    "DeepseekOCRForCausalLM",
-    "JetVLMForConditionalGeneration",
-    "PaddleOCRVLForConditionalGeneration",
-    "MiDashengLMModel",
-]
-
-if external_mm_model_arch := envs.SGLANG_EXTERNAL_MM_MODEL_ARCH.get():
-    multimodal_model_archs.append(external_mm_model_arch)
+# Multimodal support removed in DeepSeek-only build
+multimodal_model_archs = []
 
 
 def is_multimodal_model(model_architectures: List[str]):
@@ -1080,26 +836,16 @@ def is_audio_model(model_architectures: List[str]):
 
 
 def is_encoder_decoder_model(model_architectures: List[str]):
-    return "MllamaForConditionalGeneration" in model_architectures
+    return False
 
 
 def is_local_attention_model(model_architectures: List[str]):
-    return "Llama4ForConditionalGeneration" in model_architectures
+    return False
 
 
 def is_multimodal_chunked_prefill_supported(model_architectures: List[str]):
     """Check if chunked prefill is supported for a MultiModal model."""
-    unsupported = [
-        "Grok1VForCausalLM",
-        "Grok1AForCausalLM",
-        "LlavaLlamaForCausalLM",
-        "MllamaForConditionalGeneration",
-        "CLIPModel",
-    ]
-    if any(multi_model_arch in unsupported for multi_model_arch in model_architectures):
-        return False
-    else:
-        return True
+    return True
 
 
 def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
@@ -1109,36 +855,11 @@ def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
 
 
 def is_hybrid_swa_model(model_architectures: List[str]):
-
-    hybrid_swa_archs = {
-        "Llama4ForConditionalGeneration",
-        "MiMoV2FlashForCausalLM",
-        "MiMoV2MTP",
-    }
-    return any(arch in hybrid_swa_archs for arch in model_architectures)
+    return False
 
 
 def get_hybrid_layer_ids(
     model_architectures: List[str],
     num_hidden_layers: int,
     hybrid_layer_pattern: Optional[List[int]] = None):
-    if "Llama4ForConditionalGeneration" in model_architectures:
-        swa_attention_layer_ids = [
-            i for i in range(num_hidden_layers) if (i + 1) % 4 != 0
-        ]
-        full_attention_layer_ids = [
-            i for i in range(num_hidden_layers) if (i + 1) % 4 == 0
-        ]
-    elif "MiMoV2FlashForCausalLM" in model_architectures:
-        swa_attention_layer_ids = [
-            i for i in range(num_hidden_layers) if hybrid_layer_pattern[i] == 1
-        ]
-        full_attention_layer_ids = [
-            i for i in range(num_hidden_layers) if hybrid_layer_pattern[i] == 0
-        ]
-    elif "MiMoV2MTP" in model_architectures:
-        return [0], []
-    else:
-        swa_attention_layer_ids = None
-        full_attention_layer_ids = None
-    return swa_attention_layer_ids, full_attention_layer_ids
+    return None, None

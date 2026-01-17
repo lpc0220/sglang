@@ -378,8 +378,6 @@ class SchedulerOutputProcessorMixin:
         self.num_generated_tokens += len(batch.reqs)
         if not batch.spec_algorithm.is_none():
             self.update_spec_metrics(batch.batch_size(), result.num_accepted_tokens)
-        if self.enable_metrics:
-            self.metrics_collector.increment_cuda_graph_pass(value=can_run_cuda_graph)
 
         self.token_to_kv_pool_allocator.free_group_begin()
 
@@ -403,9 +401,6 @@ class SchedulerOutputProcessorMixin:
                 # Only spec v2's output_ids are updated here.
                 req.output_ids.extend(next_token_id)
                 new_accepted_len = len(next_token_id)
-
-            # Update Mamba last track seqlen
-            self._mamba_prefix_cache_update(req, batch, result, i)
 
             req.check_finished(new_accepted_len)
 
@@ -476,31 +471,6 @@ class SchedulerOutputProcessorMixin:
             self.log_decode_stats_every_iteration(
                 batch, num_accepted_tokens=result.num_accepted_tokens
             )
-
-    def _mamba_prefix_cache_update(
-        self, req: Req, batch: ScheduleBatch, result: GenerationBatchResult, i: int
-    ) -> None:
-        seq_len = len(req.origin_input_ids) + len(req.output_ids) - 1
-        if req.mamba_ping_pong_track_buffer is not None:
-            mamba_track_interval = get_global_server_args().mamba_track_interval
-            if batch.spec_algorithm.is_none() and seq_len % mamba_track_interval == 0:
-                # for non-spec decode, we update mamba_last_track_seqlen at the end of each track interval
-                req.mamba_next_track_idx = 1 - req.mamba_next_track_idx
-                req.mamba_last_track_seqlen = seq_len
-            elif (
-                not batch.spec_algorithm.is_none()
-                and result.accept_length_per_req_cpu is not None
-            ):
-                # for spec decode, update mamba_last_track_seqlen if this iteration crosses a track interval
-                actual_seq_len = req.seqlen - 1
-                if (
-                    actual_seq_len // mamba_track_interval
-                    != (actual_seq_len - result.accept_length_per_req_cpu[i])
-                    // mamba_track_interval
-                ):
-                    req.mamba_last_track_seqlen = (
-                        actual_seq_len // mamba_track_interval * mamba_track_interval
-                    )
 
     def _process_input_token_logprobs(
         self, req: Req, input_token_logprobs: List

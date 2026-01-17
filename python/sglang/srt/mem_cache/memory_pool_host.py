@@ -111,11 +111,8 @@ def alloc_with_pin_memory(
     return buffer
 
 
-ALLOC_MEMORY_FUNCS = defaultdict(
-    lambda: alloc_with_host_register,
-    {
-        "npu": alloc_with_pin_memory,
-    })
+# NVIDIA CUDA only - use host register for optimal performance
+ALLOC_MEMORY_FUNCS = defaultdict(lambda: alloc_with_host_register)
 
 
 class HostKVCache(abc.ABC):

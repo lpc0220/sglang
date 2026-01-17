@@ -740,9 +740,9 @@ class StreamExecutor:
             # Execute the stored lazy generation calls
             self.backend.role_end_generate(self)
 
-        from sglang.srt.parser.reasoning_parser import ReasoningParser
+        from sglang.srt.entrypoints.openai.serving_chat import _ReasoningParser
 
-        reasoning_parser = ReasoningParser(expr.model_type)
+        reasoning_parser = _ReasoningParser(expr.model_type)
         other = expr.expr
         if not other:
             return

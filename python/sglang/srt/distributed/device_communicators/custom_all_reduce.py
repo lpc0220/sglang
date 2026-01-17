@@ -227,7 +227,7 @@ class CustomAllreduce:
 
     def _get_ipc_meta(self, inp: torch.Tensor):
         # _share_cuda_() doesn't accept meta buffer not allocated from
-        # PyTorch cache allocator, use direct HIP call to get IPC handle
+        # PyTorch cache allocator, use direct CUDA call to get IPC handle
         handle = ops.get_meta_buffer_ipc_handle(inp)
         shard_data = (
             bytes(handle),  # ipc handle to base ptr

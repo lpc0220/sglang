@@ -318,9 +318,9 @@ class RoutingMethodType(IntEnum):
     Renormalize = (1,)
     # DeepSeekV3: Sigmoid -> RoutingBiasAdd -> Top2 in group -> Top4 groups -> Top8 experts from the Top4 groups
     DeepSeekV3 = (2,)
-    # Llama4: Top1 -> Sigmoid
+    # Top1 -> Sigmoid routing (used by ModelOpt FP8 MoE)
     Llama4 = (3,)
-    # Qwen3: Softmax -> TopK -> Renormalize
+    # Softmax -> TopK -> Renormalize routing
     RenormalizeNaive = (4,)
     # TopK only (no softmax)
     TopK = (5,)

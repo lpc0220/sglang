@@ -168,23 +168,13 @@ class MultiLayerEagleDraftWorker(BaseDraftWorker):
             self.draft_runner_list[i].model.set_embed_and_head(embed, head)
 
     def init_attention_backend(self):
-        # Create attn backends
-        self.draft_extend_attn_backend_list = []
-        for step in range(self.speculative_num_steps):
-            from sglang.srt.layers.attention.flashattention_backend import (
-                FlashAttentionBackend,
-            )
-
-            self.draft_extend_attn_backend_list.append(
-                FlashAttentionBackend(
-                    model_runner=self.draft_runner_list[step],
-                    skip_prefill=False,
-                    speculative_step_id=step,
-                )
-            )
-            self.draft_runner_list[step].attn_backend = (
-                self.draft_extend_attn_backend_list[-1]
-            )
+        # STUB: FlashAttentionBackend removed from DeepSeek-only build
+        # Multi-layer EAGLE speculative decoding requires FlashAttention which is not available
+        raise NotImplementedError(
+            "Multi-layer EAGLE speculative decoding is not implemented yet. "
+            "This DeepSeek-only build does not include FlashAttention backend. "
+            "Please use a different speculative algorithm or disable speculative decoding."
+        )
 
     def init_cuda_graphs(self):
         """Capture cuda graphs."""

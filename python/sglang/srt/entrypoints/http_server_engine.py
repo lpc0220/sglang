@@ -106,7 +106,7 @@ class HttpServerEngineAdapter(EngineBase):
         logprob_start_len=None,
         top_logprobs_num=None,
         token_ids_logprob=None,
-        lora_path=None,
+        # LoRA removed in DeepSeek-only build
         custom_logit_processor=None,
     ):
         payload = {
@@ -118,7 +118,7 @@ class HttpServerEngineAdapter(EngineBase):
             "logprob_start_len": logprob_start_len,
             "top_logprobs_num": top_logprobs_num,
             "token_ids_logprob": token_ids_logprob,
-            "lora_path": lora_path,
+            # LoRA removed in DeepSeek-only build
             "custom_logit_processor": custom_logit_processor,
         }
         # Filter out None values

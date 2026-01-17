@@ -23,7 +23,7 @@ class KVArgs:
     state_data_ptrs: List[int]
     state_data_lens: List[int]
     state_item_lens: List[int]
-    state_type: str  # "none", "mamba", "swa"
+    state_type: str  # "none" or "swa"
     ib_device: str
     ib_traffic_class: str
     gpu_id: int

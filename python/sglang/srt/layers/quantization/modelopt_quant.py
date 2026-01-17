@@ -737,7 +737,7 @@ class ModelOptFp8MoEMethod(FusedMoEMethodBase):
             use_routing_scales_on_input = True
             routed_scaling_factor = self.moe_runner_config.routed_scaling_factor
 
-            # Enforce Llama4 routing for ModelOpt FP8 MoE for now.
+            # Enforce Top1->Sigmoid routing for ModelOpt FP8 MoE for now.
             # TODO(brayden): support other routing methods
             assert topk_config.top_k == 1, "ModelOpt FP8 MoE requires top_k==1"
             assert (

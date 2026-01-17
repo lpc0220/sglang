@@ -26,10 +26,7 @@ from sglang.srt.managers.io_struct import (
     GetWeightsByNameReqInput,
     InitWeightsSendGroupForRemoteInstanceReqInput,
     InitWeightsUpdateGroupReqInput,
-    LoadLoRAAdapterFromTensorsReqInput,
-    LoadLoRAAdapterReqInput,
     SendWeightsToRemoteInstanceReqInput,
-    UnloadLoRAAdapterReqInput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
@@ -173,32 +170,6 @@ class BaseTpWorker(ABC):
         )
         return parameter
 
-    def load_lora_adapter(self, recv_req: LoadLoRAAdapterReqInput):
-        result = self.model_runner.load_lora_adapter(recv_req.to_ref())
-        return result
-
-    def unload_lora_adapter(self, recv_req: UnloadLoRAAdapterReqInput):
-        result = self.model_runner.unload_lora_adapter(recv_req.to_ref())
-        return result
-
-    def load_lora_adapter_from_tensors(
-        self, recv_req: LoadLoRAAdapterFromTensorsReqInput
-    ):
-        # The LoRA code handles TP sharding internally using slice_lora_a_weights
-        # and slice_lora_b_weights methods (see lora/layers.py:46-49, mem_pool.py:437-440).
-        tensors = MultiprocessingSerializer.deserialize(recv_req.serialized_tensors)
-        result = self.model_runner.load_lora_adapter_from_tensors(
-            recv_req.to_ref(),
-            tensors,
-            recv_req.config_dict,
-            recv_req.added_tokens_config,
-        )
-        return result
-
-    def can_run_lora_batch(self, lora_ids: list[str]) -> bool:
-        lora_ids_set = set(lora_ids) if isinstance(lora_ids, list) else lora_ids
-        return self.model_runner.lora_manager.validate_lora_batch(lora_ids_set)
-
     def forward_batch_embedding(self, model_worker_batch: ModelWorkerBatch):
         forward_batch = ForwardBatch.init_new(model_worker_batch, self.model_runner)
         logits_output = self.model_runner.forward(forward_batch).logits_output
@@ -247,8 +218,6 @@ class TpModelWorker(BaseTpWorker):
 
         if is_multi_layer_eagle:
             self._init_multi_layer_eagle_model_runners()
-
-        self._init_dllm_algorithm()
 
         if server_args.skip_tokenizer_init:
             self.tokenizer = self.processor = None
@@ -371,14 +340,6 @@ class TpModelWorker(BaseTpWorker):
                 )
             )
 
-    def _init_dllm_algorithm(self):
-        from sglang.srt.dllm.algorithm.base import DllmAlgorithm
-
-        if self.server_args.dllm_algorithm is not None:
-            self.dllm_algorithm = DllmAlgorithm.from_server_args(self.server_args)
-        else:
-            self.dllm_algorithm = None
-
     @property
     def model_runner(self) -> "ModelRunner":
         return self._model_runner
@@ -403,21 +364,6 @@ class TpModelWorker(BaseTpWorker):
             self.model_runner.req_to_token_pool.size,
             self.model_runner.req_to_token_pool.max_context_len,
             self.model_runner.token_to_kv_pool.size,
-        )
-
-    def is_dllm(self):
-        return self.dllm_algorithm is not None
-
-    def _forward_batch_generation_dllm(
-        self, forward_batch: ForwardBatch
-    ) -> GenerationBatchResult:
-        logits_output, next_token_ids, can_run_cuda_graph = self.dllm_algorithm.run(
-            self.model_runner, forward_batch
-        )
-        return GenerationBatchResult(
-            logits_output=logits_output,
-            next_token_ids=next_token_ids,
-            can_run_cuda_graph=can_run_cuda_graph,
         )
 
     def get_remote_instance_transfer_engine_info(self):

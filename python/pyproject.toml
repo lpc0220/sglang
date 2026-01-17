@@ -129,8 +129,8 @@ vsa = ["torch", "setuptools"]
 "Homepage" = "https://github.com/sgl-project/sglang"
 "Bug Tracker" = "https://github.com/sgl-project/sglang/issues"
 
-[project.scripts]
-sglang = "sglang.cli.main:main"
+# DeepSeek-only build: CLI entry point removed
+# Use: python -m sglang.launch_server --model-path <model> instead
 
 [tool.setuptools.package-data]
 "sglang" = [

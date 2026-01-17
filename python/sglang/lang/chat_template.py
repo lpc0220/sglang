@@ -247,28 +247,7 @@ register_chat_template(
     )
 )
 
-register_chat_template(
-    ChatTemplate(
-        name="janus-pro",
-        default_system_prompt=None,
-        role_prefix_and_suffix={
-            "system": (
-                "",
-                "",
-            ),
-            "User": (
-                "<｜User｜>",
-                "",
-            ),
-            "assistant": (
-                "<｜Assistant｜>",
-                "<｜end▁of▁sentence｜>",
-            ),
-        },
-        stop_str=("<｜end▁of▁sentence｜>",),
-        image_token="<image_placeholder>\n",
-    )
-)
+# janus-pro chat template removed (multimodal variant not supported)
 
 # https://huggingface.co/openbmb/MiniCPM-o-2_6
 register_chat_template(
@@ -286,28 +265,7 @@ register_chat_template(
     )
 )
 
-register_chat_template(
-    ChatTemplate(
-        name="janus",
-        default_system_prompt=None,
-        role_prefix_and_suffix={
-            "system": (
-                "",
-                "",
-            ),
-            "user": (
-                "<｜User｜>",
-                "",
-            ),
-            "assistant": (
-                "<｜Assistant｜>",
-                "<｜end▁of▁sentence｜>",
-            ),
-        },
-        stop_str=("<｜end▁of▁sentence｜>",),
-        image_token="<image_placeholder>\n",
-    )
-)
+# janus chat template removed (multimodal variant not supported)
 
 # The difference between "llama-3-instruct-llava" and "llama-3-instruct" is that llava uses a different image_token.
 register_chat_template(
@@ -534,12 +492,6 @@ def match_deepseek(model_path: str):
 def match_orion(model_path: str):
     if "orion" in model_path.lower():
         return "claude"
-
-
-@register_chat_template_matching_function
-def match_deepseek_janus_pro(model_path: str):
-    if re.search(r"janus", model_path, re.IGNORECASE):
-        return "janus-pro"
 
 
 @register_chat_template_matching_function

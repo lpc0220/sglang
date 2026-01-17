@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import torch
-from torch.nn.parameter import Parameter, UninitializedParameter
+from torch.nn.parameter import Parameter
 
 from sglang.srt.distributed import (
     divide,
@@ -338,16 +338,6 @@ class ColumnParallelLinear(LinearBase):
     def weight_loader(self, param: Parameter, loaded_weight: torch.Tensor):
         output_dim = getattr(param, "output_dim", None)
 
-        # Special case for GGUF
-        is_gguf_weight = getattr(param, "is_gguf_weight", False)
-        is_gguf_weight_type = getattr(param, "is_gguf_weight_type", False)
-        if is_gguf_weight_type:
-            param.weight_type = loaded_weight.item()
-
-        # Materialize GGUF UninitializedParameter
-        if is_gguf_weight and isinstance(param, UninitializedParameter):
-            param.materialize(loaded_weight.shape, dtype=loaded_weight.dtype)
-
         use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
 
         param_data = param.data
@@ -487,27 +477,6 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
         loaded_weight: torch.Tensor,
         loaded_shard_id: Optional[int] = None,
     ):
-
-        # Special case for GGUF
-        # initialize GGUF param after we know the quantize type
-        is_gguf_weight = getattr(param, "is_gguf_weight", False)
-        is_gguf_weight_type = getattr(param, "is_gguf_weight_type", False)
-        if is_gguf_weight_type:
-            param.data[loaded_shard_id].copy_(loaded_weight)
-            param.shard_weight_type[loaded_shard_id] = loaded_weight.item()
-            return
-
-        if is_gguf_weight:
-            output_dim = getattr(param, "output_dim", None)
-            shard_size = loaded_weight.size(output_dim) // self.tp_size
-            start_idx = self.tp_rank * shard_size
-
-            loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
-
-            param.shard_id.append(loaded_shard_id)
-            param.shard_id_map[loaded_shard_id] = len(param.data_container)
-            param.data_container.append(loaded_weight)
-            return
 
         param_data = param.data
         output_dim = getattr(param, "output_dim", None)
@@ -954,29 +923,6 @@ class QKVParallelLinear(MergedColumnParallelLinear):
         loaded_weight: torch.Tensor,
         loaded_shard_id: Optional[str] = None,
     ):
-
-        # Special case for GGUF
-        # initialize GGUF param after we know the quantize type
-        is_gguf_weight = getattr(param, "is_gguf_weight", False)
-        is_gguf_weight_type = getattr(param, "is_gguf_weight_type", False)
-        if is_gguf_weight_type and loaded_shard_id is not None:
-            idx_map = {"q": 0, "k": 1, "v": 2}
-            param.data[idx_map[loaded_shard_id]].copy_(loaded_weight)
-            param.shard_weight_type[loaded_shard_id] = loaded_weight.item()
-            return
-
-        if is_gguf_weight:
-            output_dim = getattr(param, "output_dim", None)
-            shard_size = loaded_weight.size(output_dim) // self.tp_size
-            start_idx = self.tp_rank * shard_size
-
-            loaded_weight = loaded_weight.narrow(output_dim, start_idx, shard_size)
-
-            param.shard_id.append(loaded_shard_id)
-            param.shard_id_map[loaded_shard_id] = len(param.data_container)
-            param.data_container.append(loaded_weight)
-            return
-
         param_data = param.data
         output_dim = getattr(param, "output_dim", None)
         # Special case for AQLM codebooks.
@@ -1231,19 +1177,6 @@ class RowParallelLinear(LinearBase):
     def weight_loader(self, param: Parameter, loaded_weight: torch.Tensor):
         input_dim = getattr(param, "input_dim", None)
         use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
-
-        # Special case for GGUF
-        is_gguf_weight = getattr(param, "is_gguf_weight", False)
-        is_gguf_weight_type = getattr(param, "is_gguf_weight_type", False)
-        if is_gguf_weight_type:
-            param.weight_type = loaded_weight.item()
-
-        # Materialize GGUF UninitializedParameter
-        if is_gguf_weight and isinstance(param, UninitializedParameter):
-            weight_shape = list(loaded_weight.shape)
-            if input_dim:
-                weight_shape[input_dim] = weight_shape[input_dim] // self.tp_size
-            param.materialize(tuple(weight_shape), dtype=loaded_weight.dtype)
 
         param_data = param.data
         # bitsandbytes loads the weights of the specific portion

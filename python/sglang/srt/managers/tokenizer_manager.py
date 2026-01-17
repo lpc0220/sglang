@@ -38,13 +38,16 @@ import zmq.asyncio
 from fastapi import BackgroundTasks
 
 from sglang.srt.configs.model_config import ModelConfig
-from sglang.srt.disaggregation.encode_receiver import MMReceiver
 from sglang.srt.disaggregation.utils import DisaggregationMode
+
+# MMReceiver stub (multimodal removed in DeepSeek-only build)
+MMReceiver = None
 from sglang.srt.environ import envs
-from sglang.srt.lora.lora_registry import LoRARef, LoRARegistry
 from sglang.srt.managers.async_dynamic_batch_tokenizer import AsyncDynamicbatchTokenizer
-from sglang.srt.managers.async_mm_data_processor import AsyncMMDataProcessor
 from sglang.srt.managers.disagg_service import start_disagg_service
+
+# AsyncMMDataProcessor stub (multimodal removed in DeepSeek-only build)
+AsyncMMDataProcessor = None
 from sglang.srt.managers.io_struct import (
     AbortReq,
     BatchEmbeddingOutput,
@@ -59,7 +62,6 @@ from sglang.srt.managers.io_struct import (
     FreezeGCReq,
     GenerateReqInput,
     HealthCheckOutput,
-    LoadLoRAAdapterReqInput,
     OpenSessionReqOutput,
     PauseGenerationReqInput,
     SessionParams,
@@ -70,8 +72,14 @@ from sglang.srt.managers.io_struct import (
     WatchLoadUpdateReq,
 )
 from sglang.srt.managers.mm_utils import TensorTransportMode
-from sglang.srt.managers.multimodal_processor import get_mm_processor, import_processors
 from sglang.srt.managers.request_metrics_exporter import RequestMetricsExporterManager
+
+# Multimodal processor stubs (multimodal directory removed in DeepSeek-only build)
+def get_mm_processor(*args, **kwargs):
+    raise NotImplementedError("Multimodal removed in DeepSeek-only build")
+
+def import_processors(*args, **kwargs):
+    raise NotImplementedError("Multimodal removed in DeepSeek-only build")
 from sglang.srt.managers.schedule_batch import MultimodalDataItem, RequestStage
 from sglang.srt.managers.scheduler import is_health_check_generate_req
 from sglang.srt.managers.scheduler_input_blocker import input_blocker_guard_region
@@ -79,7 +87,6 @@ from sglang.srt.managers.tokenizer_communicator_mixin import TokenizerCommunicat
 from sglang.srt.managers.tokenizer_manager_multiitem_mixin import (
     TokenizerManagerMultiItemMixin,
 )
-from sglang.srt.metrics.collector import TokenizerMetricsCollector
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import (
     PortArgs,
@@ -183,7 +190,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
     ):
         # Parse args
         self.server_args = server_args
-        self.enable_metrics = server_args.enable_metrics
         self.preferred_sampling_params = server_args.preferred_sampling_params
         self.crash_dump_folder = server_args.crash_dump_folder
         self.enable_trace = server_args.enable_trace
@@ -206,9 +212,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
 
         # Init weight update
         self.init_weight_update()
-
-        # Init LoRA status
-        self.init_lora()
 
         # Init PD disaggregation and encoder disaggregation
         self.init_disaggregation()
@@ -381,25 +384,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
         self.is_pause = False
         self.is_pause_cond = asyncio.Condition()
 
-    def init_lora(self):
-        # LoRA
-        # Initialize the `LoRARegistry` with initial LoRA adapter paths provided in `server_args`.
-        # The registry dynamically updates as adapters are loaded / unloaded during runtime. It
-        # serves as the source of truth for available adapters and maps user-friendly LoRA names
-        # to internally used unique LoRA IDs.
-        self.lora_registry = LoRARegistry(self.server_args.lora_paths)
-        # Lock to serialize LoRA update operations.
-        # Please note that, unlike `model_update_lock`, this does not block inference, allowing
-        # LoRA updates and inference to overlap.
-        self.lora_update_lock = asyncio.Lock()
-        # A cache for mapping the lora_name for LoRA adapters that have been loaded at any
-        # point to their latest LoRARef objects, so that they can be
-        # dynamically loaded if needed for inference
-        self.lora_ref_cache: Dict[str, LoRARef] = {}
-        if self.server_args.lora_paths is not None:
-            for lora_ref in self.server_args.lora_paths:
-                self.lora_ref_cache[lora_ref.lora_name] = lora_ref
-
     def init_disaggregation(self):
         # PD Disaggregation
         self.disaggregation_mode = DisaggregationMode(
@@ -416,22 +400,8 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
 
     def init_metric_collector_watchdog(self):
         # Metrics
-        if self.enable_metrics:
-            labels = {
-                "model_name": self.server_args.served_model_name,
-                # TODO: Add lora name/path in the future,
-            }
-            if self.server_args.tokenizer_metrics_allowed_custom_labels:
-                for label in self.server_args.tokenizer_metrics_allowed_custom_labels:
-                    labels[label] = ""
-            self.metrics_collector = TokenizerMetricsCollector(
-                server_args=self.server_args,
-                labels=labels,
-                bucket_time_to_first_token=self.server_args.bucket_time_to_first_token,
-                bucket_e2e_request_latency=self.server_args.bucket_e2e_request_latency,
-                bucket_inter_token_latency=self.server_args.bucket_inter_token_latency,
-                collect_tokens_histogram=self.server_args.collect_tokens_histogram,
-            )
+        # Metrics disabled - was TokenizerMetricsCollector
+        self.metrics_collector = None
 
         if self.server_args.gc_warning_threshold_secs > 0.0:
             configure_gc_warning(self.server_args.gc_warning_threshold_secs)
@@ -494,9 +464,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             await self.is_pause_cond.wait_for(lambda: not self.is_pause)
 
         async with self.model_update_lock.reader_lock:
-            if self.server_args.enable_lora and obj.lora_path:
-                await self._resolve_lora_path(obj)
-
             # Tokenize the request and send it to the scheduler
             if obj.is_single:
                 tokenized_obj = await self._tokenize_one_request(obj)
@@ -917,7 +884,7 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 bootstrap_host=obj.bootstrap_host,
                 bootstrap_port=obj.bootstrap_port,
                 bootstrap_room=obj.bootstrap_room,
-                lora_id=obj.lora_id,
+                # LoRA removed in DeepSeek-only build
                 input_embeds=input_embeds,
                 session_params=session_params,
                 custom_logit_processor=obj.custom_logit_processor,
@@ -1154,9 +1121,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                         if state.obj.rid in self.rid_to_state:
                             del self.rid_to_state[state.obj.rid]
 
-                        # Mark ongoing LoRA request as finished.
-                        if self.server_args.enable_lora and state.obj.lora_path:
-                            await self.lora_registry.release(state.obj.lora_id)
                         if not is_stream:
                             raise fastapi.HTTPException(
                                 status_code=finish_reason["status_code"],
@@ -1297,11 +1261,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             return
         req = AbortReq(rid=rid, abort_all=abort_all)
         self.send_to_scheduler.send_pyobj(req)
-        if self.enable_metrics:
-            # TODO: also use custom_labels from the request
-            self.metrics_collector.observe_one_aborted_request(
-                self.metrics_collector.labels
-            )
 
     async def pause_generation(self, obj: PauseGenerationReqInput):
         async with self.is_pause_cond:
@@ -1485,18 +1444,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 "total_retractions": recv_obj.retraction_counts[i],
             }
 
-            if self.enable_metrics:
-                self._add_metric_if_present(recv_obj, "queue_time", meta_info, i)
-                self._add_metric_if_present(
-                    recv_obj, "prefill_launch_delay", meta_info, i
-                )
-                self._add_metric_if_present(
-                    recv_obj, "prefill_launch_latency", meta_info, i
-                )
-                self._add_metric_if_present(
-                    recv_obj, "prefill_finished_ts", meta_info, i
-                )
-
             if getattr(state.obj, "return_logprob", False):
                 self.convert_logprob_style(
                     meta_info,
@@ -1574,23 +1521,15 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
 
                 if self.server_args.speculative_algorithm:
                     self._calculate_spec_decoding_metrics(meta_info, recv_obj, i)
-                if self.enable_metrics:
-                    self._calculate_timing_metrics(meta_info, state, recv_obj, i)
 
                 trace_req_finish(rid, ts=int(state.finished_time * 1e9))
 
                 del self.rid_to_state[rid]
 
-                # Mark ongoing LoRA request as finished.
-                if self.server_args.enable_lora and state.obj.lora_path:
-                    asyncio.create_task(self.lora_registry.release(state.obj.lora_id))
-
             state.out_list.append(out_dict)
             state.event.set()
 
-            # Log metrics and dump
-            if self.enable_metrics and state.obj.log_metrics:
-                self.collect_metrics(state, recv_obj, i)
+            # Dump requests
             if self.dump_requests_folder and state.finished and state.obj.log_metrics:
                 self.dump_requests(state, out_dict)
             if self.crash_dump_folder and state.finished and state.obj.log_metrics:
@@ -1789,74 +1728,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 meta_info["spec_draft_token_num"] = total_draft_tokens
                 meta_info["spec_verify_ct"] = recv_obj.spec_verify_ct[i]
 
-    def _calculate_timing_metrics(
-        self,
-        meta_info: Dict[str, Any],
-        state: ReqState,
-        recv_obj: Union[
-            BatchStrOutput,
-            BatchEmbeddingOutput,
-            BatchMultimodalOutput,
-            BatchTokenIDOutput,
-        ],
-        i: int,
-    ) -> None:
-        """Calculate request-level timing metrics, such as inference time, decode throughput, and time per token."""
-        # Request timing timestamps.
-        if state.created_time > 0:
-            meta_info["request_received_ts"] = state.created_time
-        if state.request_sent_to_scheduler_ts > 0:
-            meta_info["request_sent_to_scheduler_ts"] = (
-                state.request_sent_to_scheduler_ts
-            )
-        if state.response_sent_to_client_ts > 0:
-            meta_info["response_sent_to_client_ts"] = state.response_sent_to_client_ts
-        if state.finished_time > 0:
-            meta_info["decode_finished_ts"] = state.finished_time
-
-        # Inference time calculation.
-        if (
-            hasattr(recv_obj, "forward_entry_time")
-            and recv_obj.forward_entry_time
-            and recv_obj.forward_entry_time[i] is not None
-            and state.finished_time_perf > 0.0
-        ):
-            inference_time = state.finished_time_perf - recv_obj.forward_entry_time[i]
-            meta_info["inference_time"] = inference_time
-
-        # Decode throughput, time per token calculation. Only calculated if TTFT is available.
-        if (
-            state.first_token_time_perf > 0.0
-            and state.finished_time_perf > 0.0
-            and not isinstance(recv_obj, BatchEmbeddingOutput)
-            and recv_obj.completion_tokens[i] > 0
-        ):
-            decode_time = state.finished_time_perf - state.first_token_time_perf
-            completion_tokens = recv_obj.completion_tokens[i]
-            meta_info["decode_throughput"] = completion_tokens / decode_time
-
-    def _add_metric_if_present(
-        self,
-        recv_obj: Any,
-        attr_name: str,
-        meta_info: Dict[str, Any],
-        index: int,
-    ) -> None:
-        """Add a metric to meta_info if it exists and is not None.
-
-        Args:
-            recv_obj: The received object that may contain the metric attribute
-            attr_name: The name of the attribute to check
-            meta_info: The dictionary to add the metric to
-            index: The index to access the metric value in the attribute list
-        """
-        if (
-            hasattr(recv_obj, attr_name)
-            and getattr(recv_obj, attr_name)
-            and getattr(recv_obj, attr_name)[index] is not None
-        ):
-            meta_info[attr_name] = getattr(recv_obj, attr_name)[index]
-
     def _request_has_grammar(self, obj: GenerateReqInput) -> bool:
         return (
             obj.sampling_params.get("json_schema", None)
@@ -1864,60 +1735,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             or obj.sampling_params.get("ebnf", None)
             or obj.sampling_params.get("structural_tag", None)
         )
-
-    def collect_metrics(self, state: ReqState, recv_obj: BatchStrOutput, i: int):
-        completion_tokens = (
-            recv_obj.completion_tokens[i]
-            if getattr(recv_obj, "completion_tokens", None)
-            else 0
-        )
-
-        custom_labels = getattr(state.obj, "custom_labels", None)
-        labels = (
-            {**self.metrics_collector.labels, **custom_labels}
-            if custom_labels
-            else self.metrics_collector.labels
-        )
-        if (
-            state.first_token_time == 0.0
-            and self.disaggregation_mode != DisaggregationMode.PREFILL
-        ):
-            state.first_token_time = state.last_time = time.time()
-            state.first_token_time_perf = time.perf_counter()
-            state.last_completion_tokens = completion_tokens
-            self.metrics_collector.observe_time_to_first_token(
-                labels, state.first_token_time - state.created_time
-            )
-        else:
-            num_new_tokens = completion_tokens - state.last_completion_tokens
-            if num_new_tokens:
-                new_time = time.time()
-                interval = new_time - state.last_time
-                self.metrics_collector.observe_inter_token_latency(
-                    labels,
-                    interval,
-                    num_new_tokens,
-                )
-                state.last_time = new_time
-                state.last_completion_tokens = completion_tokens
-
-        if state.finished:
-            retraction_count = (
-                recv_obj.retraction_counts[i]
-                if getattr(recv_obj, "retraction_counts", None)
-                and i < len(recv_obj.retraction_counts)
-                else 0
-            )
-
-            self.metrics_collector.observe_one_finished_request(
-                labels,
-                recv_obj.prompt_tokens[i],
-                completion_tokens,
-                recv_obj.cached_tokens[i],
-                state.finished_time - state.created_time,
-                self._request_has_grammar(state.obj),
-                retraction_count,
-            )
 
     def dump_requests(self, state: ReqState, out_dict: dict):
         self.dump_request_list.append(
@@ -2115,55 +1932,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             # set future if the all results are received
             if len(self.model_update_tmp) == self.server_args.dp_size:
                 self.model_update_result.set_result(self.model_update_tmp)
-
-    async def _resolve_lora_path(self, obj: Union[GenerateReqInput, EmbeddingReqInput]):
-        if isinstance(obj.lora_path, str):
-            unique_lora_paths = set([obj.lora_path])
-        else:
-            unique_lora_paths = set(obj.lora_path)
-
-        if (
-            self.server_args.max_loaded_loras is not None
-            and len(unique_lora_paths) > self.server_args.max_loaded_loras
-        ):
-            raise ValueError(
-                f"Received request with {len(unique_lora_paths)} unique loras requested "
-                f"but max loaded loras is {self.server_args.max_loaded_loras}"
-            )
-
-        # Reload all existing LoRA adapters that have been dynamically unloaded
-        unregistered_loras = await self.lora_registry.get_unregistered_loras(
-            unique_lora_paths
-        )
-        for lora_path in unregistered_loras:
-            if lora_path is None:
-                continue
-
-            if lora_path not in self.lora_ref_cache:
-                raise ValueError(
-                    f"Got LoRA adapter that has never been loaded: {lora_path}\n"
-                    f"All loaded adapters: {self.lora_ref_cache.keys()}."
-                )
-
-            logger.info(f"Reloading evicted adapter: {lora_path}")
-            new_lora_ref = self.lora_ref_cache[lora_path]
-            load_result = await self.load_lora_adapter(
-                LoadLoRAAdapterReqInput(
-                    lora_name=new_lora_ref.lora_name,
-                    lora_path=new_lora_ref.lora_path,
-                    pinned=new_lora_ref.pinned,
-                )
-            )
-            if (
-                not load_result.success
-                and "already loaded" not in load_result.error_message
-            ):
-                raise ValueError(
-                    f"Failed to implicitly load LoRA adapter {lora_path}: {load_result.error_message}"
-                )
-
-        # Look up the LoRA ID from the registry and start tracking ongoing LoRA requests.
-        obj.lora_id = await self.lora_registry.acquire(obj.lora_path)
 
     def _trace_request_start(
         self,

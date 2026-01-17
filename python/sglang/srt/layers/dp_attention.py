@@ -39,9 +39,6 @@ _ATTN_DP_SIZE: Optional[int] = None
 _LOCAL_ATTN_DP_SIZE: Optional[int] = None
 _LOCAL_ATTN_DP_RANK: Optional[int] = None
 _ENABLE_DP_ATTENTION_FLAG: bool = False
-_USE_ROCM700A_WA = False
-
-
 class DpPaddingMode(IntEnum):
 
     # Padding tokens to max length and then gather tokens using `all_gather_into_tensor`
@@ -72,12 +69,7 @@ class DpPaddingMode(IntEnum):
 
     @classmethod
     def get_default_mode_in_cuda_graph(cls) -> DpPaddingMode:
-        # TODO(kkhuang-amd): noqa, temporary work-around for rocm 7.0.0 alpha
-        # it can be safely removed later, once RCCL fixed
-        if _USE_ROCM700A_WA:
-            return cls.SUM_LEN
-        else:
-            return cls.MAX_LEN
+        return cls.MAX_LEN
 
 
 class _DpGatheredBufferWrapper:
@@ -302,9 +294,6 @@ def initialize_dp_attention(
         use_pymscclpp=False,
         use_custom_allreduce=False,
         use_torch_symm_mem_all_reduce=False,
-        use_hpu_communicator=False,
-        use_xpu_communicator=False,
-        use_npu_communicator=False,
         group_name="attention_tp",
     )
 

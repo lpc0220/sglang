@@ -418,7 +418,7 @@ class NgramVerifyInput(SpecInput):
         )
         if (not is_all_greedy) and (not TREE_SPEC_KERNEL_AVAILABLE):
             logger.warning(
-                "Tree speculative sampling kernel unavailable (likely AMD/HIP build). "
+                "Tree speculative sampling kernel unavailable. "
                 "Falling back to greedy verification."
             )
 

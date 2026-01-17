@@ -38,8 +38,8 @@ from sglang.profiler import run_profile
 from sglang.srt.entrypoints.http_server import launch_server
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import is_blackwell, kill_process_tree
-from sglang.test.nightly_bench_utils import save_results_as_pydantic_models
-from sglang.test.test_utils import is_in_ci, write_github_step_summary
+
+# DeepSeek-only build: test utilities removed (CI/nightly bench not needed)
 
 
 @dataclasses.dataclass
@@ -690,16 +690,9 @@ def run_benchmark(server_args: ServerArgs, bench_args: BenchArgs):
     summary = get_report_summary(results, bench_args, server_args)
     print(summary)
 
-    if is_in_ci() and bench_args.append_to_github_summary:
-        write_github_step_summary(summary)
-
-    # Save results as pydantic models in the JSON format
-    if bench_args.pydantic_result_filename:
-        save_results_as_pydantic_models(
-            results,
-            pydantic_result_filename=bench_args.pydantic_result_filename,
-            model_path=server_args.model_path,
-        )
+    # DeepSeek-only build: CI/nightly bench utilities removed
+    # - is_in_ci() and write_github_step_summary() removed
+    # - save_results_as_pydantic_models() removed
 
 
 if __name__ == "__main__":

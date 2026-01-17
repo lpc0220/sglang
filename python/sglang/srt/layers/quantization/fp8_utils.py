@@ -104,8 +104,8 @@ def normalize_e4m3fn_to_e4m3fnuz(
     # but NaN in e4m3fnuz. So here we set it to 0.
     # https://onnx.ai/onnx/technical/float8.html
     weight_as_int8 = weight.view(torch.int8)
-    ROCM_FP8_NAN_AS_INT = -128
-    weight_as_int8[weight_as_int8 == ROCM_FP8_NAN_AS_INT] = 0
+    FP8_E4M3FN_NAN_AS_INT = -128
+    weight_as_int8[weight_as_int8 == FP8_E4M3FN_NAN_AS_INT] = 0
     weight = weight_as_int8.view(torch.float8_e4m3fnuz)
 
     # For the same bits representation, e4m3fnuz value is half of
@@ -447,42 +447,6 @@ def _unpack_ue8m0_scale_for_triton(
     return sf_fp32
 
 
-def aiter_w8a8_block_fp8_linear(
-    input: torch.Tensor,
-    weight: torch.Tensor,
-    block_size: List[int],
-    weight_scale: torch.Tensor,
-    input_scale: Optional[torch.Tensor] = None,
-    bias: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    # assert input_scale is None
-    input_2d = input.view(-1, input.shape[-1])
-    output_shape = [*input.shape[:-1], weight.shape[0]]
-
-    # if input_scale not None, input is quanted
-    if input_scale is not None:
-        q_input = input_2d
-        x_scale = input_scale
-
-    else:
-        q_input, x_scale = aiter_per1x128_quant(input_2d, quant_dtype=aiter.dtypes.fp8)
-
-    output = gemm_a8w8_blockscale(
-        q_input,
-        weight,
-        x_scale,
-        weight_scale,
-        dtype=torch.bfloat16 if input_scale is not None else input.dtype,
-    )
-
-    if bias is not None:
-        output += bias
-
-    return output.to(
-        dtype=torch.bfloat16 if input_scale is not None else input_2d.dtype
-    ).view(*output_shape)
-
-
 def triton_w8a8_block_fp8_linear(
     input: torch.Tensor,
     weight: torch.Tensor,
@@ -771,10 +735,8 @@ def _inverse_transform_scale_ue8m0_impl(sf_packed):
     sf_reshaped = sf_fp32.view(mn, block_size, k)
     sf_unrepeated = sf_reshaped[:, 0:1, :]
     if not torch.all(sf_unrepeated == sf_reshaped):
-        from sglang.srt.debug_utils.dumper import get_tensor_info
-
         raise AssertionError(
-            f"sf_unrepeated != sf_reshaped ({get_tensor_info(sf_unrepeated)=} {get_tensor_info(sf_reshaped)=})"
+            f"sf_unrepeated != sf_reshaped (sf_unrepeated.shape={sf_unrepeated.shape} sf_reshaped.shape={sf_reshaped.shape})"
         )
     sf_unrepeated = sf_unrepeated.squeeze(1).contiguous()
 
@@ -1028,41 +990,6 @@ def can_auto_enable_marlin_fp8() -> bool:
         return 80 <= sm < 89
     except Exception:
         return False
-
-
-def apply_fp8_ptpc_linear(
-    input: torch.Tensor,
-    weight: torch.Tensor,
-    weight_scale: torch.Tensor,
-    input_scale: Optional[torch.Tensor] = None,
-    input_scale_ub: Optional[torch.Tensor] = None,
-    bias: Optional[torch.Tensor] = None,
-    cutlass_fp8_supported: bool = cutlass_fp8_supported(),
-    use_per_token_if_dynamic: bool = False,
-    pad_output: Optional[bool] = None,
-    compressed_tensor_quant: bool = False,
-) -> torch.Tensor:
-    # View input as 2D matrix for fp8 methods
-    input_2d = input.view(-1, input.shape[-1])
-
-    # weight is transposed (K, N)
-    output_shape = [*input.shape[:-1], weight.shape[1]]
-
-    q_input, x_scale = aiter.per_token_quant_hip(input_2d, quant_dtype=aiter.dtypes.fp8)
-
-    per_tensor_weights = (weight_scale.numel() == 1) and weight_scale.dim() < 2
-    per_tensor_activations = (x_scale.numel() == 1) and x_scale.dim() < 2
-
-    if not (per_tensor_weights and per_tensor_activations):
-        # weight is in (N, K)
-        output_shape = [*input.shape[:-1], weight.shape[0]]
-
-    output = aiter.gemm_a8w8_bpreshuffle(
-        q_input, weight, x_scale, weight_scale, None, input.dtype
-    )
-    if bias is not None:
-        output = output + bias
-    return output.view(*output_shape)
 
 
 def validate_fp8_block_shape(

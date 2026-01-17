@@ -103,8 +103,6 @@ from sglang.srt.managers.io_struct import (
     GetWeightsByNameReqInput,
     InitWeightsSendGroupForRemoteInstanceReqInput,
     InitWeightsUpdateGroupReqInput,
-    LoadLoRAAdapterFromTensorsReqInput,
-    LoadLoRAAdapterReqInput,
     OpenSessionReqInput,
     ParseFunctionCallReq,
     PauseGenerationReqInput,
@@ -115,7 +113,6 @@ from sglang.srt.managers.io_struct import (
     SeparateReasoningReqInput,
     SetInternalStateReq,
     SlowDownReqInput,
-    UnloadLoRAAdapterReqInput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
@@ -133,11 +130,10 @@ from sglang.srt.managers.multi_tokenizer_mixin import (
 )
 from sglang.srt.managers.template_manager import TemplateManager
 from sglang.srt.managers.tokenizer_manager import ServerStatus, TokenizerManager
-from sglang.srt.metrics.func_timer import enable_func_timer
 from sglang.srt.model_loader.remote_instance_weight_loader_utils import (
     parse_remote_instance_transfer_engine_info_from_scheduler_infos,
 )
-from sglang.srt.parser.reasoning_parser import ReasoningParser
+from sglang.srt.entrypoints.openai.serving_chat import _ReasoningParser
 from sglang.srt.server_args import PortArgs, ServerArgs
 from sglang.srt.tracing.trace import process_tracing_init, trace_set_thread_info
 from sglang.srt.utils import (
@@ -252,10 +248,7 @@ async def lifespan(fast_api_app: FastAPI):
         warmup_thread_kwargs = dict(server_args=server_args)
         thread_label = f"MultiTokenizer-{_global_state.tokenizer_manager.worker_id}"
 
-    # Add prometheus middleware
-    if server_args.enable_metrics:
-        add_prometheus_middleware(app)
-        enable_func_timer()
+    # Prometheus middleware removed in DeepSeek-only build
 
     # Init tracing
     if server_args.enable_trace:
@@ -1046,55 +1039,6 @@ async def slow_down(obj: SlowDownReqInput, request: Request):
         return _create_error_response(e)
 
 
-@app.api_route("/load_lora_adapter", methods=["POST"])
-async def load_lora_adapter(obj: LoadLoRAAdapterReqInput, request: Request):
-    """Load a new LoRA adapter without re-launching the server."""
-    result = await _global_state.tokenizer_manager.load_lora_adapter(obj, request)
-
-    if result.success:
-        return ORJSONResponse(
-            result,
-            status_code=HTTPStatus.OK,
-        )
-    else:
-        return ORJSONResponse(
-            result,
-            status_code=HTTPStatus.BAD_REQUEST,
-        )
-
-
-@app.api_route("/load_lora_adapter_from_tensors", methods=["POST"])
-async def load_lora_adapter_from_tensors(
-    obj: LoadLoRAAdapterFromTensorsReqInput, request: Request
-):
-    """Load a new LoRA adapter from tensors without re-launching the server."""
-    result = await _global_state.tokenizer_manager.load_lora_adapter_from_tensors(
-        obj, request
-    )
-
-    if result.success:
-        return ORJSONResponse(result, status_code=HTTPStatus.OK)
-    else:
-        return ORJSONResponse(result, status_code=HTTPStatus.BAD_REQUEST)
-
-
-@app.api_route("/unload_lora_adapter", methods=["POST"])
-async def unload_lora_adapter(obj: UnloadLoRAAdapterReqInput, request: Request):
-    """Load a new LoRA adapter without re-launching the server."""
-    result = await _global_state.tokenizer_manager.unload_lora_adapter(obj, request)
-
-    if result.success:
-        return ORJSONResponse(
-            result,
-            status_code=HTTPStatus.OK,
-        )
-    else:
-        return ORJSONResponse(
-            result,
-            status_code=HTTPStatus.BAD_REQUEST,
-        )
-
-
 @app.api_route("/open_session", methods=["GET", "POST"])
 async def open_session(obj: OpenSessionReqInput, request: Request):
     """Open a session, and return its unique session id."""
@@ -1166,7 +1110,7 @@ async def separate_reasoning_request(obj: SeparateReasoningReqInput, request: Re
     A native API endpoint to separate reasoning from a text.
     """
     # 1) Initialize the parser based on the request body
-    parser = ReasoningParser(model_type=obj.reasoning_parser)
+    parser = _ReasoningParser(model_type=obj.reasoning_parser)
 
     # 2) Call the non-stream parsing method (non-stream)
     reasoning_text, normal_text = parser.parse_non_stream(obj.text)
@@ -1296,19 +1240,6 @@ async def available_models():
                 max_model_len=_global_state.tokenizer_manager.model_config.context_len,
             )
         )
-
-    # Add loaded LoRA adapters
-    if _global_state.tokenizer_manager.server_args.enable_lora:
-        lora_registry = _global_state.tokenizer_manager.lora_registry
-        for _, lora_ref in lora_registry.get_all_adapters().items():
-            model_cards.append(
-                ModelCard(
-                    id=lora_ref.lora_name,
-                    root=lora_ref.lora_path,
-                    parent=served_model_names[0],
-                    max_model_len=None,
-                )
-            )
 
     return ModelList(data=model_cards)
 
@@ -1733,8 +1664,7 @@ def launch_server(
         )
     )
 
-    if server_args.enable_metrics:
-        add_prometheus_track_response_middleware(app)
+    # Prometheus track response middleware removed in DeepSeek-only build
 
     # Pass additional arguments to the lifespan function.
     # They will be used for additional initialization setups.

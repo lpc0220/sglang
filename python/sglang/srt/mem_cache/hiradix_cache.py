@@ -23,7 +23,6 @@ from sglang.srt.mem_cache.radix_cache import (
     compute_node_hash_values,
     split_node_hash_value,
 )
-from sglang.srt.metrics.collector import StorageMetricsCollector
 
 if TYPE_CHECKING:
     from sglang.srt.mem_cache.cache_init_params import CacheInitParams
@@ -71,7 +70,6 @@ class HiRadixCache(RadixCache):
         self.pp_rank = params.pp_rank
         self.pp_size = params.pp_size
         self.enable_storage = server_args.hicache_storage_backend is not None
-        self.enable_storage_metrics = self.enable_storage and params.enable_metrics
 
         (
             extra_config,
@@ -108,16 +106,6 @@ class HiRadixCache(RadixCache):
             pp_rank=self.pp_rank,
             pp_size=self.pp_size,
         )
-        if self.enable_storage_metrics:
-            # TODO: support pp
-            labels = {
-                "storage_backend": server_args.hicache_storage_backend,
-                "tp_rank": self.cache_controller.tp_rank,
-                "dp_rank": self.cache_controller.dp_rank,
-                "pp_rank": self.cache_controller.pp_rank,
-                "pp_size": self.cache_controller.pp_size,
-            }
-            self.storage_metrics_collector = StorageMetricsCollector(labels=labels)
 
         # record the nodes with ongoing write through
         self.ongoing_write_through = {}
@@ -465,11 +453,6 @@ class HiRadixCache(RadixCache):
         self.evictable_size_ += len(device_indices)
         self.inc_lock_ref(last_hit_node)
 
-        if self.metrics_collector is not None:
-            self.metrics_collector.observe_load_back_duration(
-                time.perf_counter() - start_time
-            )
-            self.metrics_collector.increment_load_back_num_tokens(len(device_indices))
 
         return device_indices
 
@@ -508,10 +491,6 @@ class HiRadixCache(RadixCache):
         self.loading_check()
         if self.enable_storage:
             self.drain_storage_control_queues()
-        if self.enable_storage_metrics:
-            self.storage_metrics_collector.log_storage_metrics(
-                self.cache_controller.storage_backend.get_stats()
-            )
 
     def drain_storage_control_queues(self):
         """
@@ -552,10 +531,6 @@ class HiRadixCache(RadixCache):
             entry = self.ongoing_backup.pop(ack_id, None)
             if entry is not None:
                 entry.release_host()
-            if self.enable_storage_metrics:
-                self.storage_metrics_collector.log_backuped_tokens(
-                    operation.completed_tokens
-                )
 
         # release host memory
         host_indices_list = []
@@ -666,11 +641,6 @@ class HiRadixCache(RadixCache):
         last_host_node.release_host()
         del self.ongoing_prefetch[req_id]
         self.cache_controller.prefetch_tokens_occupied -= len(token_ids)
-
-        if self.enable_storage_metrics:
-            self.storage_metrics_collector.log_prefetched_tokens(
-                min_completed_tokens - matched_length
-            )
 
         return True
 

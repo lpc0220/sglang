@@ -27,10 +27,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 import torch
 
-from sglang.srt.lora.lora_registry import LoRARef
 from sglang.srt.managers.schedule_batch import BaseFinishReason
-from sglang.srt.multimodal.mm_utils import has_valid_data
 from sglang.srt.sampling.sampling_params import SamplingParams
+
+
+def has_valid_data(data):
+    """Check if multimodal data is valid. DeepSeek-only: always returns False."""
+    return False
 from sglang.srt.utils import ImageData
 
 # Handle serialization of Image for pydantic
@@ -208,10 +211,7 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
     # Session info for continual prompting
     session_params: Optional[Union[List[Dict], Dict]] = None
 
-    # The path to the LoRA adaptors
-    lora_path: Optional[Union[List[Optional[str]], Optional[str]]] = None
-    # The uid of LoRA adaptors, should be initialized by tokenizer manager
-    lora_id: Optional[Union[List[Optional[str]], Optional[str]]] = None
+    # LoRA removed in DeepSeek-only build
 
     # Custom logit processor for advanced sampling control. Must be a serialized instance
     # of `CustomLogitProcessor` in python/sglang/srt/sampling/custom_logit_processor.py
@@ -394,7 +394,7 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
         # Expand input based on type
         self._expand_inputs(num)
         self._normalize_rid(num)
-        self._normalize_lora_paths(num)
+        # LoRA removed in DeepSeek-only build
         self._normalize_image_data(num)
         self._normalize_video_data(num)
         self._normalize_audio_data(num)
@@ -422,15 +422,7 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
                 raise ValueError("input_embeds should be a list for batch processing.")
             self.input_embeds = self.input_embeds * self.parallel_sample_num
 
-    def _normalize_lora_paths(self, num):
-        """Normalize LoRA paths for batch processing."""
-        if self.lora_path is not None:
-            if isinstance(self.lora_path, str):
-                self.lora_path = [self.lora_path] * num
-            elif isinstance(self.lora_path, list):
-                self.lora_path = self.lora_path * self.parallel_sample_num
-            else:
-                raise ValueError("lora_path should be a list or a string.")
+    # LoRA _normalize_lora_paths method removed in DeepSeek-only build
 
     def _normalize_image_data(self, num):
         """Normalize image data for batch processing."""
@@ -639,8 +631,7 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
             return_routed_experts=self.return_routed_experts,
             modalities=self.modalities[i] if self.modalities else None,
             session_params=self.session_params,
-            lora_path=self.lora_path[i] if self.lora_path is not None else None,
-            lora_id=self.lora_id[i] if self.lora_id is not None else None,
+            # LoRA removed in DeepSeek-only build
             custom_logit_processor=(
                 self.custom_logit_processor[i]
                 if self.custom_logit_processor is not None
@@ -716,8 +707,7 @@ class TokenizedGenerateReqInput(BaseReq):
     # Session info for continual prompting
     session_params: Optional[SessionParams] = None
 
-    # LoRA related
-    lora_id: Optional[str] = None  # None means just use the base model
+    # LoRA removed in DeepSeek-only build
 
     # Custom logit processor for advanced sampling control. Must be a serialized instance
     # of `CustomLogitProcessor` in python/sglang/srt/sampling/custom_logit_processor.py
@@ -1465,7 +1455,7 @@ class ProfileReqInput(BaseReq):
     # If it is set, profiling is automatically stopped after this step, and
     # the caller doesn't need to run stop_profile.
     num_steps: Optional[int] = None
-    # The activities to record. The choices are ["CPU", "GPU", "MEM", "RPD"]
+    # The activities to record. The choices are ["CPU", "GPU", "MEM", "CUDA_PROFILER"]
     activities: Optional[List[str]] = None
     # Whether profile by stages (e.g., prefill and decode) separately
     profile_by_stage: bool = False
@@ -1581,7 +1571,7 @@ class ParseFunctionCallReq(BaseReq):
         default_factory=list
     )  # A list of available function tools (name, parameters, etc.).
     tool_call_parser: Optional[str] = (
-        None  # Specify the parser type, e.g. 'llama3', 'qwen25', or 'mistral'. If not specified, tries all.
+        None  # Specify the parser type, e.g. 'deepseekv3', 'deepseekv31', or 'deepseekv32'.
     )
 
 
@@ -1607,70 +1597,6 @@ class RpcReqInput(BaseReq):
 class RpcReqOutput(BaseReq):
     success: bool
     message: str
-
-
-@dataclass
-class LoadLoRAAdapterReqInput(BaseReq):
-    # The name of the lora module to newly loaded.
-    lora_name: str
-    # The path of loading.
-    lora_path: str
-    # Whether to pin the LoRA adapter in memory.
-    pinned: bool = False
-    # The unique identifier for the LoRA adapter, which automatically generated in the `TokenizerManager`.
-    lora_id: Optional[str] = None
-
-    def to_ref(self) -> LoRARef:
-        return LoRARef(
-            lora_id=self.lora_id,
-            lora_name=self.lora_name,
-            lora_path=self.lora_path,
-            pinned=self.pinned,
-        )
-
-
-@dataclass
-class UnloadLoRAAdapterReqInput(BaseReq):
-    # The name of lora module to unload.
-    lora_name: str
-    # The unique identifier for the LoRA adapter, which automatically generated in the `TokenizerManager`.
-    lora_id: Optional[str] = None
-
-    def to_ref(self) -> LoRARef:
-        return LoRARef(
-            lora_id=self.lora_id,
-            lora_name=self.lora_name,
-        )
-
-
-@dataclass
-class LoadLoRAAdapterFromTensorsReqInput(BaseReq):
-    lora_name: str
-    config_dict: Dict[str, Any]
-    serialized_tensors: str
-    pinned: bool = False
-    added_tokens_config: Optional[Dict[str, Any]] = None
-    lora_id: Optional[str] = None
-
-    def to_ref(self) -> LoRARef:
-        return LoRARef(
-            lora_id=self.lora_id,
-            lora_name=self.lora_name,
-            lora_path="__tensor__",
-            pinned=self.pinned,
-        )
-
-
-@dataclass
-class LoRAUpdateOutput(BaseReq):
-    success: bool
-    error_message: Optional[str] = None
-    loaded_adapters: Optional[Dict[str, LoRARef]] = None
-
-
-LoadLoRAAdapterReqOutput = UnloadLoRAAdapterReqOutput = (
-    LoadLoRAAdapterFromTensorsReqOutput
-) = LoRAUpdateOutput
 
 
 class BlockReqType(Enum):

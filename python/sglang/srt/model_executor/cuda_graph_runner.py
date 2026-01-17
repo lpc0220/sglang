@@ -37,7 +37,6 @@ from sglang.srt.distributed.parallel_state import (
     GroupCoordinator,
     graph_capture,
     set_pdmux_status)
-from sglang.srt.dllm.config import DllmConfig
 from sglang.srt.layers.attention.nsa.utils import is_nsa_enable_prefill_cp
 from sglang.srt.layers.dp_attention import (
     DpPaddingMode,
@@ -254,8 +253,8 @@ class CudaGraphRunner:
 
         self.deepep_adapter = DeepEPCudaGraphRunnerAdapter()
 
-        self.dllm_config = DllmConfig.from_server_args(model_runner.server_args)
-        self.is_dllm = self.dllm_config is not None
+        self.dllm_config = None
+        self.is_dllm = False
 
         # Batch sizes to capture
         self.capture_bs, self.compile_bs = get_batch_sizes_to_capture(model_runner)
@@ -305,16 +304,6 @@ class CudaGraphRunner:
         if self.enable_torch_compile:
             set_torch_compile_config()
 
-        if self.model_runner.server_args.enable_lora:
-            self.model_runner.lora_manager.init_cuda_graph_batch_info(
-                max_bs_in_cuda_graph=self.max_bs,
-                num_tokens_per_bs=self.num_tokens_per_bs)
-
-        enable_mamba_track = (
-            self.model_runner.server_args.enable_mamba_extra_buffer()
-            and self.model_runner.spec_algorithm.is_none()
-        )
-
         if self.require_gathered_buffer:
             assert self.require_mlp_tp_gather or self.require_attn_tp_gather
         self.buffers: GraphInputBuffers = GraphInputBuffers.create(
@@ -331,8 +320,7 @@ class CudaGraphRunner:
             seq_len_fill_value=self.seq_len_fill_value,
             encoder_len_fill_value=self.encoder_len_fill_value,
             num_tokens_per_bs=self.num_tokens_per_bs,
-            cache_loc_dtype=self._cache_loc_dtype(),
-            enable_mamba_track=enable_mamba_track)
+            cache_loc_dtype=self._cache_loc_dtype())
 
         self.tbo_plugin = TboCudaGraphRunnerPlugin()
 
@@ -592,24 +580,7 @@ class CudaGraphRunner:
                 spec_info.capture_hidden_mode if spec_info else CaptureHiddenMode.NULL
             )
 
-        if self.model_runner.server_args.enable_lora:
-            # It is safe to capture CUDA graph using empty LoRA id, as the LoRA kernels will always be launched whenever
-            # `--enable-lora` is set to True (and return immediately if the LoRA id is empty for perf optimization).
-            lora_ids = [None] * bs
-        else:
-            lora_ids = None
-
-        # mamba state tracking
-        mamba_track_indices = (
-            buffers.mamba_track_indices[:bs]
-            if buffers.mamba_track_indices is not None
-            else None
-        )
-        mamba_track_mask = (
-            buffers.mamba_track_mask[:bs]
-            if buffers.mamba_track_mask is not None
-            else None
-        )
+        # LoRA removed in DeepSeek-only build
 
         if stream_idx is None:
             attn_backend = self.model_runner.attn_backend
@@ -631,9 +602,6 @@ class CudaGraphRunner:
             attn_backend=attn_backend,
             out_cache_loc=out_cache_loc,
             seq_lens_sum=seq_lens.sum().item(),
-            mamba_track_indices=mamba_track_indices,
-            mamba_track_mask=mamba_track_mask,
-            mamba_track_seqlens=None,  # Prefill only
             encoder_lens=encoder_lens,
             return_logprob=False,
             positions=positions,
@@ -647,11 +615,10 @@ class CudaGraphRunner:
             capture_hidden_mode=self.capture_hidden_mode,
             num_token_non_padded=buffers.num_token_non_padded,
             global_forward_mode=self.capture_forward_mode,
-            lora_ids=lora_ids)
+        )
         self.tbo_plugin.capture_one_batch_size(forward_batch, num_tokens=num_tokens)
 
-        if lora_ids is not None:
-            self.model_runner.lora_manager.prepare_lora_batch(forward_batch)
+        # LoRA removed in DeepSeek-only build
 
         # Attention backend
         attn_backend.init_forward_metadata_capture_cuda_graph(

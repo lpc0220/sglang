@@ -325,7 +325,7 @@ class Fp8LinearMethod(LinearMethodBase):
 
     def process_weights_after_loading(self, layer: Module) -> None:
         if self.block_quant:
-            # If ROCm, normalize the weights and scales to e4m3fnuz
+            # FP8 FNUZ format handling (not used on NVIDIA CUDA)
             if _is_fp8_fnuz:
                 # activation_scheme: dynamic
                 weight, weight_scale, _ = normalize_e4m3fn_to_e4m3fnuz(
@@ -413,7 +413,7 @@ class Fp8LinearMethod(LinearMethodBase):
                     # Dequant -> Quant with max scale so we can run per tensor.
                     weight = layer.weight
                     weight_scale = layer.weight_scale
-                    # If ROCm, normalize the weights and scales to e4m3fnuz
+                    # FP8 FNUZ format handling (not used on NVIDIA CUDA)
                     if _is_fp8_fnuz:
                         weight, weight_scale, input_scale = (
                             normalize_e4m3fn_to_e4m3fnuz(
@@ -684,7 +684,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
     def process_weights_after_loading(self, layer: Module) -> None:
         # Block quant doesn't need to process weights after loading
         if self.block_quant:
-            # If ROCm, normalize the weights and scales to e4m3fnuz
+            # FP8 FNUZ format handling (not used on NVIDIA CUDA)
             if _is_fp8_fnuz:
                 # activation_scheme: dynamic
                 w13_weight, w13_weight_scale, _ = normalize_e4m3fn_to_e4m3fnuz(
@@ -743,7 +743,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
 
         # If checkpoint is fp16 or bfloat16, quantize in place.
         if not self.quant_config.is_checkpoint_fp8_serialized:
-            # If ROCm, fp8_dtype will be float8_e4m3fnuz (MI300x HW)
+            # fp8_dtype is float8_e4m3fn on NVIDIA CUDA
             w13_weight = torch.empty_like(layer.w13_weight.data, dtype=fp8_dtype)
             w2_weight = torch.empty_like(layer.w2_weight.data, dtype=fp8_dtype)
 
@@ -796,7 +796,7 @@ class Fp8MoEMethod(FusedMoEMethodBase):
                     layer.w2_input_scale.max(), requires_grad=False
                 )
 
-            # If ROCm, normalize the weights and scales to e4m3fnuz
+            # FP8 FNUZ format handling (not used on NVIDIA CUDA)
             if _is_fp8_fnuz:
                 # Normalize the weights and scales
                 w13_weight, w13_weight_scale, w13_input_scale = (
@@ -856,66 +856,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
 
                 align_fp8_moe_weights_for_flashinfer_trtllm(layer)
             return
-
-    def process_weights_hip_int4(self, layer: Module):
-        # INT4-FP8 (INT4 MoE Weight, FP8 Compute)
-        # Weight Permutation
-        layer.w13_weight = torch.nn.Parameter(
-            shuffle_weight(layer.w13_weight.data, (16, 16)),
-            requires_grad=False,
-        )
-        torch.cuda.empty_cache()
-        layer.w2_weight = torch.nn.Parameter(
-            shuffle_weight(layer.w2_weight.data, (16, 16)),
-            requires_grad=False,
-        )
-        torch.cuda.empty_cache()
-
-        # INT4-FP8 : offset INT4 w13_weight_scale1 to single w13_weight_scale
-        # Fp8 moe kernel needs single fp8 w13_weight_scale for w13 per expert.
-        # We won't do requant each expert's fp8 weight (not direct available),
-        # instead we adjust half of INT4 w13_weight_scale1 numbers
-        assert layer.w13_weight_scale is not None
-        shard_size = layer.intermediate_size_per_partition
-        max_w13_scales = layer.w13_weight_scale.max(dim=1).values
-        for expert_id in range(layer.num_local_experts):
-            start = 0
-            max_w13_scale_fp8 = max_w13_scales[expert_id]
-            for shard_id in range(2):
-                if layer.w13_weight_scale[expert_id][shard_id] != max_w13_scale_fp8:
-                    int4_rescale = (
-                        layer.w13_weight_scale[expert_id][shard_id] / max_w13_scale_fp8
-                    )
-                    layer.w13_weight_scale1[expert_id][
-                        start : start + shard_size
-                    ] *= int4_rescale
-                start += shard_size
-
-        layer.w13_weight_scale = torch.nn.Parameter(max_w13_scales, requires_grad=False)
-
-        # special hack to asm_moe, which takes (weight_scale1 * weight_scale) as post GEMM scaling
-        # optimal design - shall apply per-column weight_scale1 before GEMM, and weight_scale post
-        for expert_id in range(layer.num_local_experts):
-            layer.w13_weight_scale1[expert_id] *= max_w13_scales[expert_id]
-            layer.w2_weight_scale1[expert_id] *= layer.w2_weight_scale[expert_id]
-
-    def process_weights_hip_scale_padding(self, layer: Module):
-        from sglang.srt.layers.moe.fused_moe_triton.fused_moe import (
-            padding_size,  # Avoid circular import
-        )
-
-        if get_bool_env_var("SGLANG_MOE_PADDING"):
-            # If ROCm, apply weight padding (min. Mem channel contention) only if set
-            layer.w13_weight = torch.nn.Parameter(
-                F.pad(layer.w13_weight.data, (0, padding_size), "constant", 0),
-                requires_grad=False,
-            )
-            torch.cuda.empty_cache()
-            layer.w2_weight = torch.nn.Parameter(
-                F.pad(layer.w2_weight.data, (0, padding_size), "constant", 0),
-                requires_grad=False,
-            )
-            torch.cuda.empty_cache()
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
@@ -1136,17 +1076,6 @@ class Fp8MoEMethod(FusedMoEMethodBase):
         )
 
         self._cutlass_buffers_ready = True
-
-    def maybe_apply_hip_fused_experts(
-        self,
-        layer: torch.nn.Module,
-        x: torch.Tensor,
-        topk_output: TopKOutput,
-        activation: str = "silu",
-        no_combine: bool = False,
-    ) -> Optional[torch.Tensor]:
-        return None
-
 
 class Fp8KVCacheMethod(BaseKVCacheMethod):
     """

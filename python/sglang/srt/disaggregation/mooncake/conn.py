@@ -645,13 +645,7 @@ class MooncakeKVManager(CommonKVManager):
         """Send state or extra pool data with type-specific handling."""
         state_type = getattr(self.kv_args, "state_type", "none")
 
-        if state_type == "mamba":
-            return self._send_mamba_state(
-                req,
-                prefill_state_indices,
-                dst_state_data_ptrs,
-            )
-        elif state_type == "swa":
+        if state_type == "swa":
             # Reuse _send_kvcache_generic interface to send extra pool data
             prefill_state_indices = np.array(prefill_state_indices, dtype=np.int32)
             dst_state_indices = np.array(req.dst_state_indices, dtype=np.int32)
@@ -666,27 +660,6 @@ class MooncakeKVManager(CommonKVManager):
             )
         else:
             return 0
-
-    def _send_mamba_state(
-        self,
-        req: TransferInfo,
-        prefill_mamba_index: list[int],
-        dst_state_data_ptrs: list[int],
-    ):
-        """Transfer Mamba states."""
-        assert len(prefill_mamba_index) == 1, "Mamba should have single state index"
-
-        transfer_blocks = []
-        prefill_state_data_ptrs = self.kv_args.state_data_ptrs
-        prefill_state_item_lens = self.kv_args.state_item_lens
-
-        for i, dst_state_ptr in enumerate(dst_state_data_ptrs):
-            length = prefill_state_item_lens[i]
-            src_addr = prefill_state_data_ptrs[i] + length * int(prefill_mamba_index[0])
-            dst_addr = dst_state_ptr + length * int(req.dst_state_indices[0])
-            transfer_blocks.append((src_addr, dst_addr, length))
-
-        return self._transfer_data(req.mooncake_session_id, transfer_blocks)
 
     def sync_status_to_decode_endpoint(
         self, remote: str, dst_port: int, room: int, status: int, prefill_rank: int

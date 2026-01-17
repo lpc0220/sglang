@@ -615,7 +615,7 @@ class TboForwardBatchPreparer:
             "extend_prefix_lens_cpu",
             "extend_seq_lens_cpu",
             "extend_logprob_start_lens_cpu",
-            "lora_ids",
+            # LoRA removed in DeepSeek-only build
         ]:
             old_value = getattr(batch, key)
             if old_value is None:
@@ -811,7 +811,6 @@ def _model_forward_tbo(
     original_hidden_states_len = inputs["hidden_states"].shape[0]
     del inputs
 
-    # HIP removed, CUDA-only
     context = deep_gemm_wrapper.configure_deep_gemm_num_sms(
         operations_strategy.deep_gemm_num_sms
     )

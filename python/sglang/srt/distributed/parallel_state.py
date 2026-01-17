@@ -210,9 +210,6 @@ class GroupCoordinator:
         use_pymscclpp: bool,
         use_custom_allreduce: bool,
         use_torch_symm_mem_all_reduce: bool,
-        use_hpu_communicator: bool,
-        use_xpu_communicator: bool,
-        use_npu_communicator: bool,
         use_message_queue_broadcaster: bool = False,
         group_name: Optional[str] = None,
         pynccl_use_current_stream: bool = False,
@@ -267,9 +264,6 @@ class GroupCoordinator:
         self.use_pymscclpp = use_pymscclpp
         self.use_custom_allreduce = use_custom_allreduce
         self.use_torch_symm_mem_all_reduce = use_torch_symm_mem_all_reduce
-        self.use_hpu_communicator = use_hpu_communicator
-        self.use_xpu_communicator = use_xpu_communicator
-        self.use_npu_communicator = use_npu_communicator
         self.use_message_queue_broadcaster = use_message_queue_broadcaster
 
         # Lazy import to avoid documentation build error
@@ -329,29 +323,6 @@ class GroupCoordinator:
                 group=self.cpu_group,
                 device=self.device,
             )
-
-        # Create communicator for other hardware backends (kept for compatibility)
-        from sglang.srt.distributed.device_communicators.hpu_communicator import (
-            HpuCommunicator,
-        )
-        from sglang.srt.distributed.device_communicators.npu_communicator import (
-            NpuCommunicator,
-        )
-        from sglang.srt.distributed.device_communicators.xpu_communicator import (
-            XpuCommunicator,
-        )
-
-        self.hpu_communicator: Optional[HpuCommunicator] = None
-        if use_hpu_communicator and self.world_size > 1:
-            self.hpu_communicator = HpuCommunicator(group=self.device_group)
-
-        self.xpu_communicator: Optional[XpuCommunicator] = None
-        if use_xpu_communicator and self.world_size > 1:
-            self.xpu_communicator = XpuCommunicator(group=self.device_group)
-
-        self.npu_communicator: Optional[NpuCommunicator] = None
-        if use_npu_communicator and self.world_size > 1:
-            self.npu_communicator = NpuCommunicator(group=self.device_group)
 
         # Create message queue
         from sglang.srt.distributed.device_communicators.shm_broadcast import (
@@ -490,15 +461,7 @@ class GroupCoordinator:
                 torch.distributed.all_reduce(input_, group=self.device_group)
             return input_
 
-        if self.hpu_communicator is not None and not self.hpu_communicator.disabled:
-            return self.hpu_communicator.all_reduce(input_)
-
-        if self.xpu_communicator is not None and not self.xpu_communicator.disabled:
-            return self.xpu_communicator.all_reduce(input_)
-
-        if self.npu_communicator is not None and not self.npu_communicator.disabled:
-            return self.npu_communicator.all_reduce(input_)
-
+        # NVIDIA CUDA only
         if self.pynccl_comm is not None and self.is_symmetric_memory_enabled():
             with self.pynccl_comm.change_state(
                 enable=True, stream=get_current_device_stream_fast()
@@ -694,16 +657,7 @@ class GroupCoordinator:
             -input_.dim() <= dim < input_.dim()
         ), f"Invalid dim ({dim}) for input tensor with shape {input_.size()}"
 
-        # For HPUs, use HPU communicator.
-        hpu_comm = self.hpu_communicator
-        if hpu_comm is not None and not hpu_comm.disabled:
-            return hpu_comm.all_gather(input_, dim)
-
-        # For NPUs, use NPU communicator.
-        npu_comm = self.npu_communicator
-        if npu_comm is not None and not npu_comm.disabled:
-            return npu_comm.all_gather(input_, dim)
-
+        # NVIDIA CUDA only
         if dim < 0:
             # Convert negative dim to positive.
             dim += input_.dim()
@@ -811,9 +765,7 @@ class GroupCoordinator:
         if dim < 0:
             # Convert negative dim to positive.
             dim += input_.dim()
-        if self.xpu_communicator is not None and not self.xpu_communicator.disabled:
-            return self.xpu_communicator.gather(input_, self.rank_in_group, dst, dim)
-        # Allocate output tensor.
+        # NVIDIA CUDA only - Allocate output tensor.
         if self.rank_in_group == dst:
             gather_list = [torch.empty_like(input_) for _ in range(world_size)]
         else:
@@ -1242,9 +1194,6 @@ def init_world_group(
         use_pymscclpp=False,
         use_custom_allreduce=False,
         use_torch_symm_mem_all_reduce=False,
-        use_hpu_communicator=False,
-        use_xpu_communicator=False,
-        use_npu_communicator=False,
         group_name="world",
     )
 
@@ -1274,9 +1223,6 @@ def init_model_parallel_group(
         use_pymscclpp=use_mscclpp_allreduce,
         use_custom_allreduce=use_custom_allreduce,
         use_torch_symm_mem_all_reduce=use_torch_symm_mem_allreduce,
-        use_hpu_communicator=True,
-        use_xpu_communicator=True,
-        use_npu_communicator=True,
         use_message_queue_broadcaster=use_message_queue_broadcaster,
         group_name=group_name,
         pynccl_use_current_stream=pynccl_use_current_stream,

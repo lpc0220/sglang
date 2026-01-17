@@ -51,12 +51,8 @@ def find_nccl_library() -> str:
             "Found nccl from environment variable SGLANG_NCCL_SO_PATH=%s", so_file
         )
     else:
-        if torch.version.cuda is not None:
-            so_file = "libnccl.so.2"
-        elif torch.version.hip is not None:
-            so_file = "librccl.so.1"
-        else:
-            raise ValueError("NCCL only supports CUDA and ROCm backends.")
+        # NVIDIA CUDA only
+        so_file = "libnccl.so.2"
         logger.debug("Found nccl from library %s", so_file)
     return so_file
 

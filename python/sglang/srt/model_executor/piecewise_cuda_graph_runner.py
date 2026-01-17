@@ -123,13 +123,6 @@ def set_torch_compile_config():
 class PiecewiseCudaGraphRunner:
     """A PiecewiseCudaGraphRunner runs the forward pass of a model with cuda graph and torch.compile."""
 
-    def is_mamba_track_enabled(self):
-        return (
-            self.model_runner.server_args.enable_mamba_extra_buffer()
-            and not self.model_runner.server_args.disable_radix_cache
-            and self.model_runner.spec_algorithm.is_none()
-        )
-
     def __init__(self, model_runner: ModelRunner):
         # Parse args
         self.model_runner = model_runner
@@ -180,7 +173,6 @@ class PiecewiseCudaGraphRunner:
         self.max_bs = model_runner.req_to_token_pool.size
 
         self.is_multimodal = model_runner.is_multimodal
-        self.mamba_track_enabled = self.is_mamba_track_enabled()
 
         # Graph inputs
         with torch.device(self.device):
@@ -191,21 +183,6 @@ class PiecewiseCudaGraphRunner:
             self.out_cache_loc_swa = (
                 torch.zeros((self.max_num_tokens), dtype=torch.int64)
                 if model_runner.is_hybrid_swa
-                else None
-            )
-            self.mamba_track_indices = (
-                torch.zeros((self.max_bs), dtype=torch.int64)
-                if self.mamba_track_enabled
-                else None
-            )
-            self.mamba_track_mask = (
-                torch.zeros((self.max_bs), dtype=torch.bool)
-                if self.mamba_track_enabled
-                else None
-            )
-            self.mamba_track_seqlens = (
-                torch.zeros((self.max_bs), dtype=torch.int32)
-                if self.mamba_track_enabled
                 else None
             )
             self.positions = torch.zeros((self.max_num_tokens), dtype=torch.int64)
@@ -286,19 +263,6 @@ class PiecewiseCudaGraphRunner:
             if self.out_cache_loc_swa is not None
             else None
         )
-        mamba_track_indices = (
-            self.mamba_track_indices[:1]
-            if self.mamba_track_indices is not None
-            else None
-        )
-        mamba_track_mask = (
-            self.mamba_track_mask[:1] if self.mamba_track_mask is not None else None
-        )
-        mamba_track_seqlens = (
-            self.mamba_track_seqlens[:1]
-            if self.mamba_track_seqlens is not None
-            else None
-        )
         with torch.device(self.device):
             forward_batch = ForwardBatch(
                 forward_mode=ForwardMode.EXTEND,
@@ -316,9 +280,6 @@ class PiecewiseCudaGraphRunner:
                 out_cache_loc=out_cache_loc,
                 out_cache_loc_swa=out_cache_loc_swa,
                 seq_lens_sum=num_tokens,
-                mamba_track_indices=mamba_track_indices,
-                mamba_track_mask=mamba_track_mask,
-                mamba_track_seqlens=mamba_track_seqlens,
                 encoder_lens=None,
                 return_logprob=False,
                 extend_num_tokens=num_tokens,
@@ -339,7 +300,7 @@ class PiecewiseCudaGraphRunner:
                 capture_hidden_mode=CaptureHiddenMode.NULL,
                 num_token_non_padded=None,
                 global_forward_mode=ForwardMode.EXTEND,
-                lora_ids=None)
+            )
 
         # Attention backend
         self.model_runner.attn_backend.init_forward_metadata(forward_batch)
@@ -414,32 +375,13 @@ class PiecewiseCudaGraphRunner:
             if self.out_cache_loc_swa is not None
             else None
         )
-        mamba_track_indices = (
-            self.mamba_track_indices[:bs]
-            if self.mamba_track_indices is not None
-            else None
-        )
-        mamba_track_mask = (
-            self.mamba_track_mask[:bs] if self.mamba_track_mask is not None else None
-        )
-        mamba_track_seqlens = (
-            self.mamba_track_seqlens[:bs]
-            if self.mamba_track_seqlens is not None
-            else None
-        )
         positions = self.positions[:num_tokens]
         mrope_positions = (
             self.mrope_positions[:, :num_tokens] if self.is_multimodal else None
         )
 
         global_dp_buffer_len = None
-
-        if self.model_runner.server_args.enable_lora:
-            # It is safe to capture CUDA graph using empty LoRA id, as the LoRA kernels will always be launched whenever
-            # `--enable-lora` is set to True (and return immediately if the LoRA id is empty for perf optimization).
-            lora_ids = [None] * bs
-        else:
-            lora_ids = None
+        # LoRA removed in DeepSeek-only build
 
         with torch.device(self.device):
             forward_batch = ForwardBatch(
@@ -458,9 +400,6 @@ class PiecewiseCudaGraphRunner:
                 out_cache_loc=out_cache_loc,
                 out_cache_loc_swa=out_cache_loc_swa,
                 seq_lens_sum=num_tokens,
-                mamba_track_indices=mamba_track_indices,
-                mamba_track_mask=mamba_track_mask,
-                mamba_track_seqlens=mamba_track_seqlens,
                 encoder_lens=None,
                 return_logprob=False,
                 extend_num_tokens=num_tokens,
@@ -481,11 +420,10 @@ class PiecewiseCudaGraphRunner:
                 capture_hidden_mode=CaptureHiddenMode.NULL,
                 num_token_non_padded=None,
                 global_forward_mode=ForwardMode.EXTEND,
-                lora_ids=None)
+            )
             self.tbo_plugin.capture_one_batch_size(forward_batch, num_tokens=num_tokens)
 
-        if lora_ids is not None:
-            self.model_runner.lora_manager.prepare_lora_batch(forward_batch)
+        # LoRA removed in DeepSeek-only build
 
         self.model_runner.attn_backend.init_forward_metadata(forward_batch)
 
@@ -545,22 +483,6 @@ class PiecewiseCudaGraphRunner:
                 )
             )
 
-        if (
-            self.mamba_track_indices is not None
-            and forward_batch.mamba_track_indices is not None
-        ):
-            self.mamba_track_indices[:bs].copy_(forward_batch.mamba_track_indices)
-        if (
-            self.mamba_track_mask is not None
-            and forward_batch.mamba_track_mask is not None
-        ):
-            self.mamba_track_mask[:bs].copy_(forward_batch.mamba_track_mask)
-        if (
-            self.mamba_track_seqlens is not None
-            and forward_batch.mamba_track_seqlens is not None
-        ):
-            self.mamba_track_seqlens[:bs].copy_(forward_batch.mamba_track_seqlens)
-
         input_ids = self.input_ids[:static_num_tokens]
         positions = self.positions[:static_num_tokens]
         out_cache_loc = self.out_cache_loc[:static_num_tokens]
@@ -571,19 +493,6 @@ class PiecewiseCudaGraphRunner:
             else None
         )
 
-        mamba_track_indices = (
-            self.mamba_track_indices[:bs]
-            if self.mamba_track_indices is not None
-            else None
-        )
-        mamba_track_mask = (
-            self.mamba_track_mask[:bs] if self.mamba_track_mask is not None else None
-        )
-        mamba_track_seqlens = (
-            self.mamba_track_seqlens[:bs]
-            if self.mamba_track_seqlens is not None
-            else None
-        )
         if forward_batch.mrope_positions is not None:
             self.mrope_positions[:, :num_tokens].copy_(forward_batch.mrope_positions)
 
@@ -616,9 +525,6 @@ class PiecewiseCudaGraphRunner:
             out_cache_loc=out_cache_loc,
             out_cache_loc_swa=out_cache_loc_swa,
             seq_lens_sum=forward_batch.seq_lens_sum,
-            mamba_track_indices=mamba_track_indices,
-            mamba_track_mask=mamba_track_mask,
-            mamba_track_seqlens=mamba_track_seqlens,
             encoder_lens=forward_batch.encoder_lens,
             return_logprob=False,
             extend_seq_lens=forward_batch.extend_seq_lens,
@@ -640,7 +546,7 @@ class PiecewiseCudaGraphRunner:
             capture_hidden_mode=forward_batch.capture_hidden_mode,
             num_token_non_padded=forward_batch.num_token_non_padded,
             global_forward_mode=forward_batch.global_forward_mode,
-            lora_ids=forward_batch.lora_ids,
+            # LoRA removed in DeepSeek-only build
             sampling_info=forward_batch.sampling_info,
             mm_inputs=forward_batch.mm_inputs,
             temp_scaled_logprobs=forward_batch.temp_scaled_logprobs,

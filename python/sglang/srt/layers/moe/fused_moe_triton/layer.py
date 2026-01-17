@@ -59,7 +59,6 @@ from sglang.srt.layers.quantization.unquant import UnquantizedFusedMoEMethod
 from sglang.srt.model_loader.weight_utils import narrow_padded_param_and_loaded_weight
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_bool_env_var,
     is_flashinfer_available,
     next_power_of_2,

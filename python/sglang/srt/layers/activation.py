@@ -58,20 +58,6 @@ class SiluAndMul(MultiPlatformOp):
         silu_and_mul(x, out)
         return out
 
-    def forward_cpu(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward_native(x)
-
-    def forward_npu(self, x: torch.Tensor) -> torch.Tensor:
-        out = torch_npu.npu_swiglu(x)
-        return out
-
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        d = x.shape[-1] // 2
-        output_shape = x.shape[:-1] + (d)
-        out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-        silu_and_mul(x, out)
-        return out
-
 
 class GeluAndMul(MultiPlatformOp):
     def __init__(self, approximate="tanh"):
@@ -94,22 +80,8 @@ class GeluAndMul(MultiPlatformOp):
         d = x.shape[-1] // 2
         return F.gelu(x[..., :d], approximate=self.approximate) * x[..., d:]
 
-    def forward_cpu(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward_native(x)
-
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         return self._forward_impl(x)
-
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        return self._forward_impl(x)
-
-    def forward_npu(self, x: torch.Tensor) -> torch.Tensor:
-        y_npu, gelu_npu = torch_npu.npu_geglu(
-            x,
-            dim=-1,
-            approximate=1 if self.approximate == "tanh" else 0,
-            activate_left=True)
-        return y_npu
 
 
 class NewGELU(MultiPlatformOp):
@@ -139,14 +111,6 @@ class QuickGELU(MultiPlatformOp):
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         return self.forward_native(x)
-
-    def forward_hip(self, x: torch.Tensor) -> torch.Tensor:
-        out = torch.empty(x.shape, dtype=x.dtype, device=x.device)
-        gelu_quick(x, out)
-        return out
-
-    def forward_npu(self, x: torch.Tensor) -> torch.Tensor:
-        return torch_npu.npu_fast_gelu(x)
 
 
 class XIELU(MultiPlatformOp):

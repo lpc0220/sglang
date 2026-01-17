@@ -8,9 +8,6 @@ import torch
 
 from sglang.srt.utils import get_bool_env_var
 
-if TYPE_CHECKING:
-    from sglang.srt.metrics.collector import SchedulerMetricsCollector
-
 _DEBUG_LOG = get_bool_env_var("SGLANG_PREFILL_DELAYER_DEBUG_LOG")
 
 logger = logging.getLogger(__name__)
@@ -43,7 +40,7 @@ class PrefillDelayer:
         server_args,
         max_delay_passes: int,
         token_usage_low_watermark: Optional[float],
-        metrics_collector: Optional["SchedulerMetricsCollector"] = None,
+        metrics_collector=None,
     ):
         self._max_delay_passes = max_delay_passes
         self._token_usage_low_watermark = token_usage_low_watermark
@@ -60,7 +57,7 @@ class PrefillDelayer:
         )
         self._cpu_group = cpu_group
 
-        self._metrics_collector = metrics_collector
+        self._metrics_collector = None  # Metrics disabled
 
         self._curr_state: Optional[_State] = None
 
@@ -216,7 +213,7 @@ class PrefillDelayerSinglePassExecutor:
 def _record_single_pass_result(
     actual_execution: bool,
     output: _NegotiateOutput,
-    metrics_collector: Optional["SchedulerMetricsCollector"],
+    metrics_collector=None,
 ) -> None:
     if _DEBUG_LOG:
         if output.output_allow and (output.output_reason == "wait_timeout"):
@@ -239,18 +236,3 @@ def _record_single_pass_result(
                 "no_wait",
                 "delay",
             }
-
-    if metrics_collector is not None:
-        if (s := output.next_state) is not None:
-            wait_seconds = time.perf_counter() - s.start_time
-            forward_passes = s.delayed_count
-        else:
-            wait_seconds = forward_passes = 0
-        metrics_collector.observe_prefill_delayer_outcome(
-            forward_passes=forward_passes,
-            wait_seconds=wait_seconds,
-            input_estimation=output.input_estimation,
-            output_allow=output.output_allow,
-            output_reason=output.output_reason,
-            actual_execution=actual_execution,
-        )

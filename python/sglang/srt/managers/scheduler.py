@@ -47,7 +47,6 @@ from sglang.srt.disaggregation.decode import (
 from sglang.srt.disaggregation.decode_kvcache_offload_manager import (
     DecodeKVCacheOffloadManager,
 )
-from sglang.srt.disaggregation.encode_receiver import MMReceiver
 from sglang.srt.disaggregation.prefill import (
     PrefillBootstrapQueue,
     SchedulerDisaggregationPrefillMixin,
@@ -59,9 +58,12 @@ from sglang.srt.disaggregation.utils import (
     TransferBackend,
     prepare_abort,
 )
+
+# MMReceiver stub (multimodal removed in DeepSeek-only build)
+MMReceiver = None
+
 from sglang.srt.distributed import get_pp_group, get_world_group
 from sglang.srt.distributed.parallel_state import get_tp_group
-from sglang.srt.dllm.config import DllmConfig
 from sglang.srt.environ import envs
 from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder
 from sglang.srt.layers.dp_attention import (
@@ -96,10 +98,6 @@ from sglang.srt.managers.io_struct import (
     InitWeightsSendGroupForRemoteInstanceReqInput,
     InitWeightsSendGroupForRemoteInstanceReqOutput,
     InitWeightsUpdateGroupReqInput,
-    LoadLoRAAdapterFromTensorsReqInput,
-    LoadLoRAAdapterFromTensorsReqOutput,
-    LoadLoRAAdapterReqInput,
-    LoadLoRAAdapterReqOutput,
     OpenSessionReqInput,
     OpenSessionReqOutput,
     PauseGenerationReqInput,
@@ -116,8 +114,6 @@ from sglang.srt.managers.io_struct import (
     SlowDownReqOutput,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
-    UnloadLoRAAdapterReqInput,
-    UnloadLoRAAdapterReqOutput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
@@ -168,7 +164,6 @@ from sglang.srt.mem_cache.common import release_kv_cache
 from sglang.srt.mem_cache.radix_cache import RadixCache
 from sglang.srt.model_executor.forward_batch_info import ForwardMode, PPProxyTensors
 from sglang.srt.multiplex.multiplexing_mixin import SchedulerMultiplexMixin
-from sglang.srt.parser.reasoning_parser import ReasoningParser
 from sglang.srt.server_args import PortArgs, ServerArgs, get_global_server_args
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.tracing.trace import (
@@ -288,15 +283,9 @@ class Scheduler(
         self.priority_scheduling_preemption_threshold = (
             server_args.priority_scheduling_preemption_threshold
         )
-        self.enable_lora = server_args.enable_lora
-        self.max_loras_per_batch = server_args.max_loras_per_batch
         self.enable_overlap = not server_args.disable_overlap_schedule
         self.enable_pdmux = server_args.enable_pdmux
         self.skip_tokenizer_init = server_args.skip_tokenizer_init
-        self.enable_metrics = server_args.enable_metrics
-        self.enable_metrics_for_all_schedulers = (
-            server_args.enable_metrics_for_all_schedulers
-        )
         self.enable_kv_cache_events = bool(
             server_args.kv_events_config and tp_rank == 0
         )
@@ -383,11 +372,7 @@ class Scheduler(
 
     def init_model_config(self):
         self.model_config = ModelConfig.from_server_args(self.server_args)
-        self.dllm_config = (  # For diffusion LLM
-            DllmConfig.from_server_args(self.server_args)
-            if self.server_args.dllm_algorithm is not None
-            else None
-        )
+        self.dllm_config = None
 
     def init_ipc_channels(self, port_args: PortArgs):
         context = zmq.Context(2)
@@ -460,13 +445,12 @@ class Scheduler(
                     revision=server_args.revision,
                 )
 
-        # Set reasoning_parser and think_end_id if --reasoning_parser is enabled
+        # DeepSeek-only build: Set think_end_id for reasoning parser
         if self.server_args.reasoning_parser and self.tokenizer:
-            reasoning_parser = ReasoningParser(
-                model_type=self.server_args.reasoning_parser, stream_reasoning=False
-            )
+            # DeepSeek-R1 uses </think> as the end token
+            think_end_token = "</think>"
             self.tokenizer.think_end_id = self.tokenizer.encode(
-                reasoning_parser.detector.think_end_token, add_special_tokens=False
+                think_end_token, add_special_tokens=False
             )[0]
 
     def init_moe_gemm_config(self):
@@ -583,7 +567,7 @@ class Scheduler(
                 f"max_prefill_tokens={self.max_prefill_tokens}, "
                 f"max_running_requests={self.max_running_requests}, "
                 f"context_len={self.model_config.context_len}, "
-                f"{'available_cpu_mem' if self.device == 'cpu' else 'available_gpu_mem'}={avail_mem:.2f} GB"
+                f"available_gpu_mem={avail_mem:.2f} GB"
             )
 
     def init_cache_with_memory_pool(self):
@@ -591,10 +575,6 @@ class Scheduler(
 
         # Hybrid memory pool
         self.is_hybrid_swa = self.tp_worker.is_hybrid_swa
-        self.is_hybrid_ssm = (
-            self.tp_worker.model_runner.hybrid_gdn_config is not None
-            or self.tp_worker.model_runner.mamba2_config is not None
-        )
 
         if self.is_hybrid_swa:
             self.sliding_window_size = self.tp_worker.sliding_window_size
@@ -619,9 +599,7 @@ class Scheduler(
                 else self.tp_cpu_group
             ),
             eviction_policy=server_args.radix_eviction_policy,
-            enable_metrics=self.enable_metrics,
             enable_kv_cache_events=self.enable_kv_cache_events,
-            enable_mamba_extra_buffer=server_args.enable_mamba_extra_buffer(),
             pp_rank=self.pp_rank,
             pp_size=self.pp_size,
             chunked_prefill_size=server_args.chunked_prefill_size,
@@ -663,10 +641,6 @@ class Scheduler(
                 self.tree_cache = SWARadixCache(
                     params=params, sliding_window_size=self.sliding_window_size
                 )
-            elif self.is_hybrid_ssm:
-                from sglang.srt.mem_cache.mamba_radix_cache import MambaRadixCache
-
-                self.tree_cache = MambaRadixCache(params)
             elif server_args.enable_lmcache:
                 from sglang.srt.mem_cache.storage.lmcache.lmc_radix_cache import (
                     LMCRadixCache,
@@ -784,9 +758,6 @@ class Scheduler(
                 attn_tp_size=self.attn_tp_size,
                 cpu_group=self.tp_worker.get_tp_group().cpu_group,
                 server_args=self.server_args,
-                metrics_collector=(
-                    self.metrics_collector if self.enable_metrics else None
-                ),
                 max_delay_passes=self.server_args.prefill_delayer_max_delay_passes,
                 token_usage_low_watermark=self.server_args.prefill_delayer_token_usage_low_watermark,
             )
@@ -973,8 +944,6 @@ class Scheduler(
     def init_overlap(self):
         self.device_module = torch.get_device_module(self.device)
         self.default_stream: CudaStream = self.device_module.current_stream()
-        if self.device == "cpu":
-            self.default_stream.synchronize = lambda: None  # No-op for CPU
 
         self.forward_stream: CudaStream = self.device_module.Stream()
         self.forward_stream_ctx: CudaStreamContext = self.device_module.stream(
@@ -1056,12 +1025,6 @@ class Scheduler(
                 (SetInternalStateReq, self.set_internal_state),
                 (RpcReqInput, self.handle_rpc_request),
                 (ExpertDistributionReq, self.expert_distribution_handle),
-                (LoadLoRAAdapterReqInput, self.load_lora_adapter),
-                (
-                    LoadLoRAAdapterFromTensorsReqInput,
-                    self.load_lora_adapter_from_tensors,
-                ),
-                (UnloadLoRAAdapterReqInput, self.unload_lora_adapter),
                 (GetLoadReqInput, self.get_load),
                 (PauseGenerationReqInput, self.pause_generation),
                 (ContinueGenerationReqInput, self.continue_generation),
@@ -1439,7 +1402,7 @@ class Scheduler(
                 top_logprobs_num=recv_req.top_logprobs_num,
                 token_ids_logprob=recv_req.token_ids_logprob,
                 stream=recv_req.stream,
-                lora_id=recv_req.lora_id,
+                # LoRA removed in DeepSeek-only build
                 input_embeds=recv_req.input_embeds,
                 custom_logit_processor=recv_req.custom_logit_processor,
                 require_reasoning=recv_req.require_reasoning,
@@ -1453,9 +1416,6 @@ class Scheduler(
                 data_parallel_rank=recv_req.data_parallel_rank,
                 vocab_size=self.model_config.vocab_size,
                 priority=recv_req.priority,
-                metrics_collector=(
-                    self.metrics_collector if self.enable_metrics else None
-                ),
                 routing_key=recv_req.routing_key,
                 http_worker_ipc=recv_req.http_worker_ipc,
                 dllm_config=self.dllm_config,
@@ -1798,12 +1758,7 @@ class Scheduler(
             self.tree_cache.cache_unfinished_req(self.chunked_req, chunked=True)
 
             # chunked request keeps its rid but will get a new req_pool_idx
-            if self.tp_worker.model_runner.mambaish_config is not None:
-                self.req_to_token_pool.free(
-                    self.chunked_req.req_pool_idx, free_mamba_cache=False
-                )
-            else:
-                self.req_to_token_pool.free(self.chunked_req.req_pool_idx)
+            self.req_to_token_pool.free(self.chunked_req.req_pool_idx)
 
         if self.last_batch and self.last_batch.forward_mode.is_extend():
             if self.last_batch.chunked_req is not None:
@@ -1954,25 +1909,8 @@ class Scheduler(
             self.chunked_req.init_next_round_input()
             self.chunked_req = adder.add_chunked_req(self.chunked_req)
 
-        if self.enable_lora:
-            lora_set = set([req.lora_id for req in self.running_batch.reqs])
-
         # Get requests from the waiting queue to a new prefill batch
         for req in self.waiting_queue:
-
-            if self.enable_lora:
-                new_lora_set = (
-                    lora_set
-                    | set([req.lora_id for req in adder.can_run_list])
-                    | set([req.lora_id])
-                )
-                if not self.tp_worker.can_run_lora_batch(new_lora_set):
-                    # Batch would exceed the LoRA slot limit.
-                    # Skip this request and try scheduling it in a future iteration.
-                    # Note: When eviction is needed, the eviction policy prefers to
-                    # evict LoRA adapters over base model (None) - see mem_pool.py.
-                    continue
-
             running_bs = len(self.running_batch.reqs)
             if len(adder.can_run_list) >= self.get_num_allocatable_reqs(running_bs):
                 self.running_batch.batch_is_full = True
@@ -2017,11 +1955,6 @@ class Scheduler(
         if len(can_run_list) == 0:
             return None
 
-        if self.enable_metrics:
-            # only record queue time when enable_metrics is True to avoid overhead
-            for req in can_run_list:
-                req.add_latency(RequestStage.PREFILL_WAITING)
-
         self.waiting_queue = [
             x for x in self.waiting_queue if x not in set(can_run_list)
         ]
@@ -2046,14 +1979,10 @@ class Scheduler(
                 running_bs_offline_batch=0,
             )
 
-        # Record metrics
+        # Record forward entry time
         for req in can_run_list:
             if req.time_stats.forward_entry_time == 0:
                 req.time_stats.forward_entry_time = time.perf_counter()
-                if self.enable_metrics:
-                    self.metrics_collector.observe_queue_time(
-                        req.time_stats.get_queueing_time(),
-                    )
 
         # Create a new batch
         new_batch = ScheduleBatch.init_new(
@@ -2131,16 +2060,6 @@ class Scheduler(
             new_token_gained = new_available_tokens - old_available_tokens
 
             self.num_retracted_reqs = len(retracted_reqs)
-            if self.enable_metrics and len(retracted_reqs) > 0:
-                self.metrics_collector.increment_retracted_reqs(
-                    num_retracted_reqs=len(retracted_reqs),
-                    num_retracted_input_tokens=sum(
-                        len(r.origin_input_ids) for r in retracted_reqs
-                    ),
-                    num_retracted_output_tokens=sum(
-                        len(r.output_ids) for r in retracted_reqs
-                    ),
-                )
             self.new_token_ratio = new_token_ratio
             for req in reqs_to_abort:
                 abort_reason: FINISH_ABORT = req.to_finish
@@ -2607,12 +2526,6 @@ class Scheduler(
             if self.disaggregation_mode == DisaggregationMode.DECODE:
                 release_kv_cache(req, self.tree_cache)
 
-            # For mamba radix cache
-            if (
-                req.mamba_pool_idx is not None
-                and self.disaggregation_mode != DisaggregationMode.DECODE
-            ):
-                release_kv_cache(req, self.tree_cache, is_insert=False)
             logger.debug(f"Abort queued request. {req.rid=}")
 
         # Delete the requests in the grammar queue
@@ -2707,30 +2620,6 @@ class Scheduler(
 
     def continue_generation(self, recv_req: ContinueGenerationReqInput):
         self._engine_paused = False
-
-    def load_lora_adapter(
-        self, recv_req: LoadLoRAAdapterReqInput
-    ) -> LoadLoRAAdapterReqOutput:
-        """In-place loading a new lora adapter from disk or huggingface."""
-
-        result = self.tp_worker.load_lora_adapter(recv_req)
-        return result
-
-    def load_lora_adapter_from_tensors(
-        self, recv_req: LoadLoRAAdapterFromTensorsReqInput
-    ) -> LoadLoRAAdapterFromTensorsReqOutput:
-        """In-place loading a new lora adapter from serialized tensors."""
-
-        result = self.tp_worker.load_lora_adapter_from_tensors(recv_req)
-        return result
-
-    def unload_lora_adapter(
-        self, recv_req: UnloadLoRAAdapterReqInput
-    ) -> UnloadLoRAAdapterReqOutput:
-        """Unload the lora adapter."""
-
-        result = self.tp_worker.unload_lora_adapter(recv_req)
-        return result
 
     def init_weights_send_group_for_remote_instance(
         self, recv_req: InitWeightsSendGroupForRemoteInstanceReqInput

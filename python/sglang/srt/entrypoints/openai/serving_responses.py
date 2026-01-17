@@ -53,10 +53,9 @@ from sglang.srt.entrypoints.openai.protocol import (
     ResponsesResponse,
     UsageInfo,
 )
-from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat
+from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat, __ReasoningParser
 from sglang.srt.entrypoints.openai.tool_server import MCPToolServer, ToolServer
 from sglang.srt.managers.io_struct import GenerateReqInput
-from sglang.srt.parser.reasoning_parser import ReasoningParser
 from sglang.srt.utils import random_uuid
 
 if TYPE_CHECKING:
@@ -529,7 +528,7 @@ class OpenAIServingResponses(OpenAIServingChat):
         # Handle reasoning parsing if enabled
         if self.reasoning_parser:
             # Use standard reasoning parser (openai maps to T4Detector internally)
-            reasoning_parser = ReasoningParser(
+            reasoning_parser = _ReasoningParser(
                 model_type=self.reasoning_parser, stream_reasoning=False
             )
             reasoning_content, content = reasoning_parser.parse_non_stream(final_output)

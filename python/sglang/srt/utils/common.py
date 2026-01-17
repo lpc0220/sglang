@@ -93,7 +93,6 @@ from torch.utils._contextlib import _DecoratorContextManager
 from typing_extensions import Literal
 
 from sglang.srt.environ import envs
-from sglang.srt.metrics.func_timer import enable_func_timer
 
 if TYPE_CHECKING:
     # Apparently importing this here is necessary to avoid a segfault, see comment in load_video below
@@ -117,8 +116,31 @@ def is_cuda():
     return torch.cuda.is_available() and torch.version.cuda
 
 
+# Stub functions for backwards compatibility with sgl-kernel tests
+# These always return False since this is a NVIDIA CUDA-only build
+def is_hip():
+    """Always returns False."""
+    return False
 
 
+def is_npu():
+    """Always returns False."""
+    return False
+
+
+def is_xpu():
+    """Always returns False."""
+    return False
+
+
+def is_cpu():
+    """Always returns False."""
+    return False
+
+
+def is_host_cpu_arm64():
+    """Always returns False - NVIDIA CUDA-only build, no CPU shared memory optimization."""
+    return False
 
 
 def is_float4_e2m1fn_x2(dtype) -> bool:
@@ -265,9 +287,8 @@ def support_triton(backend: str) -> bool:
     return backend not in ["torch_native"]
 
 
-# Stub function for removed platform (NVIDIA GPU only) - needed for multi_platform.py
 def cpu_has_amx_support() -> bool:
-    """Stub function - Intel AMX not supported (NVIDIA GPU only)."""
+    """Stub function - Intel AMX not supported (NVIDIA GPU only build)."""
     return False
 
 
@@ -427,51 +448,7 @@ def get_available_gpu_memory(
         else:
             free_gpu_memory, _ = torch.cuda.mem_get_info(gpu_id)
 
-    elif device == "xpu":
-        num_gpus = torch.xpu.device_count()
-        assert gpu_id < num_gpus
-
-        if torch.xpu.current_device() != gpu_id:
-            print(
-                f"WARNING: current device is not {gpu_id}, but {torch.xpu.current_device()}, ",
-                "which may cause useless memory allocation for torch XPU context.",
-            )
-
-        if empty_cache:
-            torch.xpu.empty_cache()
-        used_memory = torch.xpu.memory_allocated()
-        total_gpu_memory = torch.xpu.get_device_properties(gpu_id).total_memory
-        free_gpu_memory = total_gpu_memory - used_memory
-
-    elif device == "hpu":
-        num_gpus = torch.hpu.device_count()
-        assert gpu_id < num_gpus
-
-        if torch.hpu.current_device() != gpu_id:
-            print(
-                f"WARNING: current device is not {gpu_id}, but {torch.hpu.current_device()}, ",
-                "which may cause useless memory allocation for torch HPU context.",
-            )
-
-        free_gpu_memory, total_gpu_memory = torch.hpu.mem_get_info()
-
-    elif device == "cpu":
-        # TODO: rename the variables in the current function to be not GPU specific
-        total_free_memory = psutil.virtual_memory().available
-        n_numa_node: int = len(get_cpu_ids_by_node())
-        free_gpu_memory = round(total_free_memory / n_numa_node, 3)
-    elif device == "npu":
-        num_gpus = torch.npu.device_count()
-        assert gpu_id < num_gpus
-
-        if torch.npu.current_device() != gpu_id:
-            print(
-                f"WARNING: current device is not {gpu_id}, but {torch.npu.current_device()}, ",
-                "which may cause useless memory allocation for torch NPU context.",
-            )
-        if empty_cache:
-            torch.npu.empty_cache()
-        free_gpu_memory, total_gpu_memory = torch.npu.mem_get_info()
+    # NVIDIA CUDA only - removed XPU/HPU/CPU/NPU platforms
 
     if distributed:
         tensor = torch.tensor(free_gpu_memory, dtype=torch.float32)
@@ -1571,95 +1548,10 @@ def get_nvgpu_memory_capacity():
         )
 
 
-def get_hpu_memory_capacity():
-    try:
-        # Run hl-smi and capture the output
-        result = subprocess.run(
-            ["hl-smi --query | grep 'Total'"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"hl-smi error: {result.stderr.strip()}")
-
-        # Parse the output to extract memory values in MiB
-        memory_values = [
-            float(mem.split(" ")[-2]) for mem in result.stdout.strip().split("\n")
-        ]
-
-        if not memory_values:
-            raise ValueError("No GPU memory values found.")
-
-        # Return the minimum memory value
-        return min(memory_values)
-
-    except FileNotFoundError:
-        raise RuntimeError(
-            "hl-smi not found. Ensure Habana drivers are installed and accessible."
-        )
-
-
-def get_npu_memory_capacity():
-    try:
-        import torch_npu  # noqa: F401
-
-        return torch.npu.mem_get_info()[1] // 1024 // 1024  # unit: MB
-    except ImportError as e:
-        raise ImportError("torch_npu is required when run on npu device.")
-
-
-def get_cpu_memory_capacity():
-    # Per-rank memory capacity cannot be determined for customized core settings
-    if os.environ.get("SGLANG_CPU_OMP_THREADS_BIND", ""):
-        return None
-    n_numa_node: int = len(get_cpu_ids_by_node())
-    if n_numa_node == 0:
-        # Cannot determine NUMA config, fallback to total memory and avoid ZeroDivisionError.
-        return float(psutil.virtual_memory().total // (1 << 20))
-    try:
-        numa_mem_list = list()
-        file_prefix = "/sys/devices/system/node/"
-        for numa_id in range(n_numa_node):
-            file_meminfo = f"node{numa_id}/meminfo"
-            with open(os.path.join(file_prefix, file_meminfo), "r") as f:
-                # MemTotal info is at the 1st line
-                line = f.readline()
-                # Expected format: "Node 0 MemTotal:       100000000 kB"
-                parts = line.split()
-                if len(parts) >= 4 and parts[2] == "MemTotal:":
-                    numa_mem_list.append(int(parts[3]))
-                else:
-                    raise ValueError(f"Unexpected format in {file_meminfo}: {line}")
-        # Retrieved value in KB, need MB
-        numa_mem = float(min(numa_mem_list) // 1024)
-        return numa_mem
-    except (FileNotFoundError, ValueError, IndexError):
-        numa_mem = psutil.virtual_memory().total / n_numa_node
-        # Retrieved value in Byte, need MB
-        return float(numa_mem // (1 << 20))
-
-
-def get_xpu_memory_capacity():
-    try:
-        if torch.xpu.is_available():
-            return torch.xpu.mem_get_info()[1] // 1024 // 1024  # unit: MB
-        raise ValueError("No GPU memory values found.")
-    except AttributeError:
-        raise RuntimeError("torch.xpu is not available.")
-
-
 def get_device_memory_capacity(device: str = None):
+    # NVIDIA CUDA only
     if is_cuda():
         gpu_mem = get_nvgpu_memory_capacity()
-    elif device == "hpu":
-        gpu_mem = get_hpu_memory_capacity()
-    elif device == "cpu":
-        gpu_mem = get_cpu_memory_capacity()
-    elif device == "xpu":
-        gpu_mem = get_xpu_memory_capacity()
     else:
         # GPU memory is not known yet or no GPU is available.
         gpu_mem = None
@@ -1757,68 +1649,30 @@ def print_info_once(msg: str) -> None:
 
 
 def get_device_name(device_id: int = 0) -> str:
+    # NVIDIA CUDA only
     if hasattr(torch, "cuda") and torch.cuda.is_available():
         return torch.cuda.get_device_name(device_id)
-
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.xpu.get_device_name(device_id)
-
-    if hasattr(torch, "hpu") and torch.hpu.is_available():
-        return torch.hpu.get_device_name(device_id)
-
-    if hasattr(torch, "npu") and torch.npu.is_available():
-        return torch.npu.get_device_name(device_id)
-
-
-@lru_cache(maxsize=1)
-def is_habana_available() -> bool:
-    return find_spec("habana_frameworks") is not None
+    return "Unknown"
 
 
 @lru_cache(maxsize=8)
 def get_device(device_id: Optional[int] = None) -> str:
+    # NVIDIA CUDA only
     if hasattr(torch, "cuda") and torch.cuda.is_available():
         if device_id is None:
             return "cuda"
         return "cuda:{}".format(device_id)
 
-    if is_habana_available():
-        try:
-            import habana_frameworks.torch.hpu  # noqa: F401
-
-            if torch.hpu.is_available():
-                if device_id == None:
-                    return "hpu"
-                return "hpu:{}".format(device_id)
-        except ImportError as e:
-            raise ImportError(
-                "Habana frameworks detected, but failed to import 'habana_frameworks.torch.hpu'."
-            )
-
-    raise RuntimeError("No accelerator (CUDA, XPU, HPU, NPU) is available.")
+    raise RuntimeError("No CUDA accelerator is available.")
 
 
 @lru_cache(maxsize=1)
 def get_device_count() -> int:
+    # NVIDIA CUDA only
     if hasattr(torch, "cuda") and torch.cuda.is_available():
         try:
             return torch.cuda.device_count()
         except RuntimeError:
-            return 0
-
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
-        try:
-            return torch.xpu.device_count()
-        except RuntimeError:
-            return 0
-
-    if is_habana_available():
-        try:
-            import habana_frameworks.torch.hpu  # noqa: F401
-
-            if torch.hpu.is_available():
-                return torch.hpu.device_count()
-        except (ImportError, RuntimeError):
             return 0
 
     return 0  # No accelerators available
@@ -1832,53 +1686,16 @@ def get_device_core_count(device_id: int = 0) -> int:
 
 
 def get_device_capability(device_id: int = 0) -> Tuple[int, int]:
+    # NVIDIA CUDA only
     major, minor = None, None
     if hasattr(torch, "cuda") and torch.cuda.is_available():
         major, minor = torch.cuda.get_device_capability(device_id)
-
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
-        major, minor, *_ = torch.xpu.get_device_capability(device_id)["version"].split(
-            "."
-        )
-        # Currently XPU version does not contain capability information.
-        major, minor = None, None
-
-    if hasattr(torch, "hpu") and torch.hpu.is_available():
-        try:
-            # TODO(HandH1998): `get_device_capability` is not supported by `torch.hpu` for now.
-            # Update this once the support is available.
-            # major, minor = torch.hpu.get_device_capability(device_id)
-            major, minor = None, None
-        except Exception as e:
-            raise RuntimeError(
-                f"An error occurred while getting device capability of hpu: {e}."
-            ) from e
 
     return major, minor
 
 
 def get_compiler_backend(mode=None) -> str:
-    if hasattr(torch, "hpu") and torch.hpu.is_available():
-        return "hpu_backend"
-
-    if hasattr(torch, "npu") and torch.npu.is_available():
-        try:
-            import torchair
-            import torchair.ge_concrete_graph.ge_converter.experimental.patch_for_hcom_allreduce
-            from torchair.configs.compiler_config import CompilerConfig
-        except ImportError as e:
-            raise ImportError(
-                "NPU detected, but torchair package is not installed. "
-                "Please install torchair for torch.compile support on NPU."
-            )
-        compiler_config = CompilerConfig()
-        compiler_config.mode = "max-autotune"
-        if mode == "npugraph_ex":
-            compiler_config.mode = "reduce-overhead"
-            compiler_config.debug.run_eagerly = True
-        npu_backend = torchair.get_npu_backend(compiler_config=compiler_config)
-        return npu_backend
-
+    # NVIDIA CUDA only - use inductor backend
     return "inductor"
 
 
@@ -2267,7 +2084,7 @@ def configure_ipv6(dist_init_addr):
     return port, host
 
 
-def launch_dummy_health_check_server(host, port, enable_metrics):
+def launch_dummy_health_check_server(host, port):
     import asyncio
 
     import uvicorn
@@ -2290,10 +2107,7 @@ def launch_dummy_health_check_server(host, port, enable_metrics):
         """Check the health of the http server."""
         return Response(status_code=200)
 
-    # Add prometheus middleware
-    if enable_metrics:
-        add_prometheus_middleware(app)
-        enable_func_timer()
+    # Prometheus middleware removed in DeepSeek-only build
 
     config = uvicorn.Config(
         app,
@@ -2590,36 +2404,11 @@ def get_local_ip_auto(fallback: str = None) -> str:
     raise ValueError("Can not get local ip")
 
 
-# TODO(hebiao064): Accelerate FA3 Spec Decode with topk > 1.
-# TODO(hebiao064): Improve the acc rate for FA3 Spec Decode with topk == 1 and page_size > 1.
 def is_no_spec_infer_or_topk_one(server_args):
     return server_args.speculative_eagle_topk is None or (
         server_args.speculative_eagle_topk == 1
         and (server_args.page_size == 1 or server_args.page_size is None)
     )
-
-
-def is_fa3_default_architecture(hf_config):
-    architectures = getattr(hf_config, "architectures", None)
-    if not isinstance(architectures, list) or not architectures:
-        return False
-    default_archs = {
-        "Llama4ForConditionalGeneration",
-        "LlamaForCausalLM",
-        "Olmo2ForCausalLM",
-        "Gemma2ForCausalLM",
-        "Gemma3ForConditionalGeneration",
-        "Qwen2ForCausalLM",
-        "Qwen3ForCausalLM",
-        "Qwen3MoeForCausalLM",
-        "Qwen3VLForConditionalGeneration",
-        "Qwen3VLMoeForConditionalGeneration",
-        "Glm4MoeForCausalLM",
-        "Glm4vForConditionalGeneration",
-        "Glm4vMoeForConditionalGeneration",
-        "Step3VLForConditionalGeneration",
-    }
-    return architectures[0] in default_archs
 
 
 # Can be more general if it is used in multiple places (keep it simple and thus not general now)

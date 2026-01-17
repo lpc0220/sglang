@@ -15,7 +15,6 @@ import triton.language as tl
 
 from sglang.srt.layers.moe.moe_runner import MoeRunnerConfig
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_bool_env_var,
     is_cuda,
 )

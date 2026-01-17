@@ -19,7 +19,6 @@ from sglang.srt.layers.quantization.compressed_tensors.schemes import (
 from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
 from sglang.srt.layers.quantization.fp8_utils import (
     apply_fp8_linear,
-    apply_fp8_ptpc_linear,
     dispatch_w8a8_block_fp8_linear,
     normalize_e4m3fn_to_e4m3fnuz,
     validate_fp8_block_shape,
@@ -211,23 +210,13 @@ class CompressedTensorsW8A8Fp8(CompressedTensorsScheme):
                 bias=bias,
             )
 
-        if self.strategy == QuantizationStrategy.CHANNEL:
-            return apply_fp8_ptpc_linear(
-                input=x,
-                weight=layer.weight,
-                weight_scale=layer.weight_scale,
-                input_scale=layer.input_scale,
-                bias=bias,
-                use_per_token_if_dynamic=True,
-                compressed_tensor_quant=True,
-            )
-        else:
-            return apply_fp8_linear(
-                input=x,
-                weight=layer.weight,
-                weight_scale=layer.weight_scale,
-                input_scale=layer.input_scale,
-                bias=bias,
-                use_per_token_if_dynamic=True,
-                compressed_tensor_quant=True,
-            )
+        # Use apply_fp8_linear for both CHANNEL and other strategies
+        return apply_fp8_linear(
+            input=x,
+            weight=layer.weight,
+            weight_scale=layer.weight_scale,
+            input_scale=layer.input_scale,
+            bias=bias,
+            use_per_token_if_dynamic=True,
+            compressed_tensor_quant=True,
+        )

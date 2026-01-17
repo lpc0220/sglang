@@ -49,7 +49,6 @@ from sglang.srt.managers.schedule_batch import (
     ScheduleBatch,
 )
 from sglang.srt.mem_cache.common import release_kv_cache
-from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool
 from sglang.srt.mem_cache.swa_memory_pool import SWAKVPool
 from sglang.srt.tracing.trace import trace_event_batch, trace_slice, trace_slice_end
 
@@ -159,8 +158,6 @@ class PrefillBootstrapQueue:
 
             if isinstance(self.token_to_kv_pool, SWAKVPool):
                 kv_args.state_type = "swa"
-            elif isinstance(self.token_to_kv_pool, HybridLinearKVPool):
-                kv_args.state_type = "mamba"
             else:
                 kv_args.state_type = "none"
         else:
@@ -269,8 +266,6 @@ class PrefillBootstrapQueue:
                 self.scheduler.stream_output([req], req.return_logprob)
                 indices_to_remove.add(i)
                 failed_reqs.append(req)
-                if self.scheduler.enable_metrics:
-                    self.scheduler.metrics_collector.increment_bootstrap_failed_reqs()
                 if self.scheduler.enable_hicache_storage:
                     # to release prefetch events associated with the request
                     self.scheduler.tree_cache.release_aborted_request(req.rid)
@@ -568,8 +563,6 @@ class SchedulerDisaggregationPrefillMixin:
                     req, error_message, status_code=HTTPStatus.INTERNAL_SERVER_ERROR
                 )
                 done_reqs.append(req)
-                if self.enable_metrics:
-                    self.metrics_collector.increment_transfer_failed_reqs()
             else:
                 assert False, f"Unexpected polling state {poll=}"
 
@@ -626,12 +619,7 @@ class SchedulerDisaggregationPrefillMixin:
             else:
                 self.send_kv_chunk(self.chunked_req)
             # chunked request keeps its rid but will get a new req_pool_idx
-            if self.tp_worker.model_runner.mambaish_config is not None:
-                self.req_to_token_pool.free(
-                    self.chunked_req.req_pool_idx, free_mamba_cache=False
-                )
-            else:
-                self.req_to_token_pool.free(self.chunked_req.req_pool_idx)
+            self.req_to_token_pool.free(self.chunked_req.req_pool_idx)
             self.running_batch.batch_is_full = False
 
         if self.last_batch and self.last_batch.forward_mode.is_extend():
@@ -679,18 +667,7 @@ class SchedulerDisaggregationPrefillMixin:
             self.disagg_metadata_buffers.set_buf(req)
 
             # Prepare extra pool indices for hybrid models
-            if isinstance(
-                self.token_to_kv_pool_allocator.get_kvcache(), HybridLinearKVPool
-            ):
-                # Mamba hybrid model: send single mamba state index
-                state_indices = [
-                    self.req_to_token_pool.req_index_to_mamba_index_mapping[
-                        req.req_pool_idx
-                    ]
-                    .cpu()
-                    .numpy()
-                ]
-            elif isinstance(self.token_to_kv_pool_allocator.get_kvcache(), SWAKVPool):
+            if isinstance(self.token_to_kv_pool_allocator.get_kvcache(), SWAKVPool):
                 # SWA hybrid model: send last window KV indices
                 seq_len = len(req.fill_ids)
                 window_size = self.sliding_window_size

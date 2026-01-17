@@ -145,16 +145,6 @@ class EagleVerifyInput(SpecInput, EagleVerifyInputV2Mixin):
             bs,
         )
 
-        if get_global_server_args().enable_mamba_extra_buffer():
-            batch.mamba_track_indices = torch.tensor(
-                [
-                    req.mamba_ping_pong_track_buffer[req.mamba_next_track_idx]
-                    for req in batch.reqs
-                ],
-                dtype=torch.int64,
-                device=batch.device,
-            )
-
     def generate_attn_arg_prefill(
         self,
         req_pool_indices: torch.Tensor,
@@ -299,11 +289,10 @@ class EagleVerifyInput(SpecInput, EagleVerifyInputV2Mixin):
                 logits=logits_output.next_token_logits, vocab_mask=vocab_mask
             )
 
-        # Sample tokens. Force greedy sampling on AMD
         is_all_greedy = sampling_info.is_all_greedy
         if (not is_all_greedy) and (not TREE_SPEC_KERNEL_AVAILABLE):
             logger.warning(
-                "Tree speculative sampling kernel unavailable (likely AMD/HIP build). "
+                "Tree speculative sampling kernel unavailable. "
                 "Falling back to greedy verification."
             )
 

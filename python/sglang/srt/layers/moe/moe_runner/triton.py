@@ -19,7 +19,7 @@ from sglang.srt.layers.moe.moe_runner.base import (
     register_pre_permute,
 )
 from sglang.srt.layers.moe.utils import MoeRunnerBackend
-from sglang.srt.utils import cpu_has_amx_support, is_cuda
+from sglang.srt.utils import is_cuda
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher.standard import (

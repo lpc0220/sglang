@@ -119,13 +119,6 @@ if __name__ == "__main__":
         help="Whether to profile memory usage (https://pytorch.org/memory_viz)",
     )
     parser.add_argument(
-        "--rpd",
-        action=argparse.BooleanOptionalAction,
-        type=bool,
-        default=False,
-        help="Whether to use ROCM rpd profiler (https://github.com/ROCm/rocmProfileData)",
-    )
-    parser.add_argument(
         "--merge-profiles",
         action=argparse.BooleanOptionalAction,
         type=bool,
@@ -141,8 +134,6 @@ if __name__ == "__main__":
         activities.append("GPU")
     if args.mem:
         activities.append("MEM")
-    if args.rpd:
-        activities.append("RPD")
 
     run_profile(
         url=args.url,

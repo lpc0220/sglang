@@ -35,10 +35,7 @@ from torch import nn
 from sglang.srt.configs.device_config import DeviceConfig
 from sglang.srt.configs.load_config import LoadConfig, LoadFormat
 from sglang.srt.configs.model_config import AttentionArch, ModelConfig, ModelImpl
-from sglang.srt.configs.update_config import adjust_config_with_unaligned_cpu_tp
 from sglang.srt.constants import GPU_MEMORY_TYPE_WEIGHTS
-from sglang.srt.debug_utils.tensor_dump_forward_hook import (
-    register_forward_hook_for_model)
 from sglang.srt.distributed import (
     get_pp_group,
     get_tp_group,
@@ -85,8 +82,6 @@ from sglang.srt.layers.pooler import EmbeddingPoolerOutput
 from sglang.srt.layers.quantization.fp8_kernel import fp8_dtype
 from sglang.srt.layers.sampler import create_sampler
 from sglang.srt.layers.torchao_utils import apply_torchao_config_to_model
-from sglang.srt.lora.lora_manager import LoRAManager
-from sglang.srt.lora.lora_registry import LoRARef
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
 from sglang.srt.mem_cache.memory_pool import ReqToTokenPool
 from sglang.srt.model_executor.cuda_graph_runner import (
@@ -120,10 +115,8 @@ from sglang.srt.utils import (
     dynamic_import,
     enable_show_time_cost,
     get_available_gpu_memory,
-    get_cpu_ids_by_node,
     get_local_ip_auto,
     init_custom_process_group,
-    is_host_cpu_arm64,
     log_info_on_rank0,
     monkey_patch_p2p_access_check,
     require_attn_tp_gather,
@@ -145,7 +138,6 @@ from sglang.srt.utils.weight_checker import WeightChecker
 from sglang.srt.weight_sync.tensor_bucket import (
     FlattenedTensorBucket,
     FlattenedTensorMetadata)
-_is_cpu_arm64 = is_host_cpu_arm64()
 
 def add_mla_attention_backend(backend_name):
     if backend_name not in MLA_ATTENTION_BACKENDS:
@@ -169,9 +161,6 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_language_model(model: nn.Module) -> nn.Module:
-    model_cls_name = model.__class__.__name__
-    if model_cls_name == "Qwen3OmniMoeForConditionalGeneration":
-        return model.thinker.model
     return model.model
 
 
@@ -293,10 +282,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         # FIXME: hacky set `use_mla_backend`
         global_server_args.use_mla_backend = self.use_mla_backend
 
-        # Init OpenMP threads binding for CPU
-        if self.device == "cpu":
-            self.init_threads_binding()
-
         # Get memory before model loading
         min_per_gpu_memory = self.init_torch_distributed()
 
@@ -396,8 +381,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 self.model_config.num_hidden_layers,
                 self.model_config.num_attention_layers)
         )
-        if self.model_config.hf_config.architectures[0] == "MiMoV2MTP":
-            model_num_layers = 1
         self.start_layer = getattr(self.model, "start_layer", 0)
         self.end_layer = getattr(self.model, "end_layer", model_num_layers)
         self.num_effective_layers = self.end_layer - self.start_layer
@@ -440,10 +423,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         if self.tp_size > 1 and supports_torch_tp:
             self.apply_torch_tp()
 
-        # Init lora
-        if server_args.enable_lora:
-            self.init_lora_manager()
-
         # Init Double Sparsity
         if server_args.enable_double_sparsity:
             if server_args.ds_heavy_channel_type is None:
@@ -477,18 +456,11 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         # Init routed experts capturer
         self.init_routed_experts_capturer()
 
-        if self.device == "cuda":
-            self.init_cublas()
-            self.init_attention_backend()
-            self.kernel_warmup()
-            self.init_device_graphs()
-        elif self.device in ["npu", "cpu"]:
-            self.init_attention_backend()
-            self.init_device_graphs()
-        else:
-            self.graph_runner = None
-            self.graph_mem_usage = 0
-            self.init_attention_backend()
+        # NVIDIA CUDA only
+        self.init_cublas()
+        self.init_attention_backend()
+        self.kernel_warmup()
+        self.init_device_graphs()
 
         if server_args.forward_hooks:
             register_forward_hooks(self.model, server_args.forward_hooks)
@@ -609,27 +581,19 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             )
             raise
 
-        if self.device == "cuda":
-            if self.server_args.elastic_ep_backend == "mooncake":
-                backend = "mooncake"
-                if self.server_args.mooncake_ib_device:
-                    mooncake_ib_device = self.server_args.mooncake_ib_device.split(",")
-                    try:
-                        from mooncake import ep as mooncake_ep
+        # NVIDIA CUDA only
+        if self.server_args.elastic_ep_backend == "mooncake":
+            backend = "mooncake"
+            if self.server_args.mooncake_ib_device:
+                mooncake_ib_device = self.server_args.mooncake_ib_device.split(",")
+                try:
+                    from mooncake import ep as mooncake_ep
 
-                        mooncake_ep.set_device_filter(mooncake_ib_device)
-                    except:
-                        pass  # A warning will be raised in `init_distributed_environment`
-            else:
-                backend = "nccl"
-        elif self.device == "xpu":
-            backend = "xccl"
-        elif self.device == "hpu":
-            backend = "hccl"
-        elif self.device == "cpu":
-            backend = "gloo"
-        elif self.device == "npu":
-            backend = "hccl"
+                    mooncake_ep.set_device_filter(mooncake_ib_device)
+                except:
+                    pass  # A warning will be raised in `init_distributed_environment`
+        else:
+            backend = "nccl"
 
         before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id)
         if not self.server_args.enable_p2p_check:
@@ -730,10 +694,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             modelopt_config=modelopt_config,
             rl_quant_profile=self.server_args.rl_quant_profile,
             draft_model_idx=self.draft_model_idx)
-        if self.device == "cpu":
-            self.model_config = adjust_config_with_unaligned_cpu_tp(
-                self.model_config, self.load_config, self.tp_size
-            )
 
         if (
             self.server_args.load_format == LoadFormat.REMOTE_INSTANCE
@@ -828,14 +788,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             f"avail mem={after_avail_memory:.2f} GB, "
             f"mem usage={self.weight_load_mem_usage:.2f} GB."
         )
-        if self.server_args.debug_tensor_dump_output_folder is not None:
-            register_forward_hook_for_model(
-                self.model,
-                self.server_args.debug_tensor_dump_output_folder,
-                self.server_args.debug_tensor_dump_layers,
-                self.tp_size,
-                self.tp_rank,
-                self.pp_rank)
 
         # Pre-expand RoPE cache before CUDA Graph capture
         reserve_rope_cache_for_long_sequences(
@@ -1254,7 +1206,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         Only used for unit test with an unoptimized performance.
         For optimized performance, please use torch.save and torch.load.
         """
-        # TODO: (chenyang) Add support for Qwen models.
         try:
             return self.model.get_weights_by_name(
                 name, truncate_size, tp_size=self.tp_size
@@ -1262,65 +1213,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         except Exception as e:
             logger.error(f"Error when getting parameter {name}: {e}")
             return None
-
-    def init_lora_manager(self):
-        self.lora_manager = LoRAManager(
-            base_model=self.model,
-            base_hf_config=self.model_config.hf_config,
-            max_loras_per_batch=self.server_args.max_loras_per_batch,
-            load_config=self.load_config,
-            dtype=self.dtype,
-            lora_backend=self.server_args.lora_backend,
-            tp_size=self.tp_size,
-            tp_rank=self.tp_rank,
-            max_lora_rank=self.server_args.max_lora_rank,
-            target_modules=self.server_args.lora_target_modules,
-            lora_paths=self.server_args.lora_paths,
-            server_args=self.server_args)
-
-    def load_lora_adapter(self, lora_ref: LoRARef):
-        """Load a new lora adapter from disk or huggingface."""
-
-        logger.info(
-            f"LoRA adapter loading starts: {lora_ref}. "
-            f"avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
-        )
-
-        result = self.lora_manager.load_lora_adapter(lora_ref)
-
-        logger.info(
-            f"LoRA adapter loading completes: {lora_ref}. "
-            f"avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
-        )
-
-        return result
-
-    def load_lora_adapter_from_tensors(
-        self, lora_ref: LoRARef, tensors, config_dict, added_tokens_config=None
-    ):
-        logger.info(f"LoRA adapter loading from tensors starts: {lora_ref}.")
-        result = self.lora_manager.load_lora_adapter_from_tensors(
-            lora_ref, tensors, config_dict, added_tokens_config
-        )
-        logger.info(f"LoRA adapter loading from tensors completes: {lora_ref}.")
-        return result
-
-    def unload_lora_adapter(self, lora_ref: LoRARef):
-        """Unload a lora adapter that was previously loaded during initialization or dynamic loading."""
-
-        logger.info(
-            f"LoRA adapter unloading starts: {lora_ref}. "
-            f"avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
-        )
-
-        result = self.lora_manager.unload_lora_adapter(lora_ref)
-
-        logger.info(
-            f"LoRA adapter unloading completes: {lora_ref}. "
-            f"avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
-        )
-
-        return result
 
     @property
     def qwen3_next_config(self):
@@ -1333,26 +1225,12 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         return None
 
     @property
-    def mamba2_config(self):
-        # Mamba2 models removed - DeepSeek models only
-        return None
-
-    @property
     def max_token_pool_size(self):
         """Return the max token pool size considering hybrid swa settings."""
         if self.is_hybrid_swa:
             return min(self.swa_max_total_num_tokens, self.max_total_num_tokens)
         else:
             return self.max_total_num_tokens
-
-    @property
-    def kimi_linear_config(self):
-        # Kimi Linear removed - DeepSeek models only
-        return None
-
-    @property
-    def mambaish_config(self):
-        return self.mamba2_config or self.hybrid_gdn_config or self.kimi_linear_config
 
     def can_run_piecewise_cuda_graph(self):
         if self.server_args.enable_torch_compile:
@@ -1606,8 +1484,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             seq_len_fill_value=seq_len_fill_value,
             encoder_len_fill_value=0,
             num_tokens_per_bs=num_tokens_per_bs,
-            cache_loc_dtype=torch.int64,
-            enable_mamba_track=False)
+            cache_loc_dtype=torch.int64)
         buffers.num_token_non_padded[...] = num_tokens
 
         # For extend mode
@@ -1712,10 +1589,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 spec_info.capture_hidden_mode if spec_info else CaptureHiddenMode.NULL
             )
 
-        if self.server_args.enable_lora:
-            lora_ids = [None] * batch_size
-        else:
-            lora_ids = None
+        # LoRA removed in DeepSeek-only build
 
         forward_batch = ForwardBatch(
             forward_mode=capture_forward_mode,
@@ -1750,10 +1624,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             capture_hidden_mode=capture_hidden_mode,
             num_token_non_padded=buffers.num_token_non_padded,
             global_forward_mode=capture_forward_mode,
-            lora_ids=lora_ids)
-
-        if lora_ids is not None:
-            self.lora_manager.prepare_lora_batch(forward_batch)
+        )
 
         self.attn_backend.init_forward_metadata(forward_batch)
 
@@ -1797,29 +1668,22 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             # TODO: Currently, cuda graph only captures decode steps, which only exists for generation models
             return
 
-        if self.device != "cpu" and self.server_args.disable_cuda_graph:
-            return
-
-        if self.device == "cpu" and not self.server_args.enable_torch_compile:
+        # NVIDIA CUDA only
+        if self.server_args.disable_cuda_graph:
             return
 
         tic = time.perf_counter()
         before_mem = get_available_gpu_memory(self.device, self.gpu_id)
         logger.info(
-            f"Capture {'cpu graph' if self.device == 'cpu' else 'cuda graph'} begin. This can take up to several minutes. avail mem={before_mem:.2f} GB"
+            f"Capture cuda graph begin. This can take up to several minutes. avail mem={before_mem:.2f} GB"
         )
-        # NVIDIA GPU only - removed CPU and NPU graph runners
-        graph_runners = defaultdict(
-            lambda: CudaGraphRunner,
-            {
-                "npu": NPUGraphRunner,
-            })
-        self.graph_runner = graph_runners[self.device](self)
+        # NVIDIA CUDA only
+        self.graph_runner = CudaGraphRunner(self)
 
         after_mem = get_available_gpu_memory(self.device, self.gpu_id)
         self.graph_mem_usage = before_mem - after_mem
         logger.info(
-            f"Capture {'cpu graph' if self.device == 'cpu' else 'cuda graph'} end. Time elapsed: {time.perf_counter() - tic:.2f} s. "
+            f"Capture cuda graph end. Time elapsed: {time.perf_counter() - tic:.2f} s. "
             f"mem usage={self.graph_mem_usage:.2f} GB. avail mem={after_mem:.2f} GB."
         )
 
@@ -1886,40 +1750,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             f"Capture piecewise CUDA graph end. Time elapsed: {time.perf_counter() - tic:.2f} s. "
             f"mem usage={mem_usage:.2f} GB. avail mem={after_mem:.2f} GB."
         )
-
-    def init_threads_binding(self):
-        omp_cpuids = os.environ.get("SGLANG_CPU_OMP_THREADS_BIND", "all")
-        cpu_ids_by_node = get_cpu_ids_by_node()
-        n_numa_node = len(cpu_ids_by_node)
-        if omp_cpuids == "all":
-            assert self.tp_size <= n_numa_node, (
-                f"SGLANG_CPU_OMP_THREADS_BIND is not set, in this case, "
-                f"tp_size {self.tp_size} should be smaller than or equal to number of numa node on the machine {n_numa_node}. "
-                f"If you need tp_size to be larger than number of numa node, please set the CPU cores for each tp rank via SGLANG_CPU_OMP_THREADS_BIND explicitly. "
-                f"For example, on a machine with 2 numa nodes, where core 0-31 are on numa node 0 and core 32-63 are on numa node 1, "
-                f"it is suggested to use -tp 2 and bind tp rank 0 to core 0-31 and tp rank 1 to core 32-63. "
-                f"This is the default behavior if SGLANG_CPU_OMP_THREADS_BIND is not set and it is the same as setting SGLANG_CPU_OMP_THREADS_BIND=0-31|32-63. "
-                f"If you do need tp_size to be larger than the number of numa nodes, you could set SGLANG_CPU_OMP_THREADS_BIND explicitly for example SGLANG_CPU_OMP_THREADS_BIND=0-15|16-31|32-47|48-63 and run with -tp 4. "
-                f"If you don't want each tp rank to use all the cores on one numa node, you could set for example SGLANG_CPU_OMP_THREADS_BIND=0-15|32-47 and run with -tp 2."
-            )
-            if self.tp_size < n_numa_node:
-                logger.warning(
-                    f"Detected the current machine has {n_numa_node} numa nodes available, but tp_size is set to {self.tp_size}, so only {self.tp_size} numa nodes are used."
-                )
-            self.local_omp_cpuid = cpu_ids_by_node[self.tp_rank]
-        else:
-            threads_bind_list = omp_cpuids.split("|")
-            assert self.tp_size == len(threads_bind_list), (
-                f"SGLANG_CPU_OMP_THREADS_BIND setting must be aligned with TP size parameter ({self.tp_size}). "
-                f"Please double check your settings."
-            )
-            self.local_omp_cpuid = threads_bind_list[self.tp_rank]
-            if self.tp_size > n_numa_node:
-                logger.warning(
-                    f"TP size ({self.tp_size})is larger than numa node number ({n_numa_node}), "
-                    f"in this case the available memory amount of each rank cannot be determined in prior. "
-                    f"Please set proper `--max-total-tokens` to avoid the out-of-memory error."
-                )
 
     def apply_torch_tp(self):
         logger.info(f"Enabling torch tensor parallelism on {self.tp_size} devices.")
@@ -2054,13 +1884,9 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         pp_proxy_tensors: Optional[PPProxyTensors],
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1) -> ModelRunnerOutput:
-        mode_check = (
-            forward_batch.forward_mode.is_cpu_graph
-            if self.device == "cpu"
-            else forward_batch.forward_mode.is_cuda_graph
-        )
+        # NVIDIA CUDA only
         can_run_graph = bool(
-            mode_check()
+            forward_batch.forward_mode.is_cuda_graph()
             and self.graph_runner
             and self.graph_runner.can_run(forward_batch)
         )
@@ -2202,10 +2028,10 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         return is_mrope_enabled
 
     def save_remote_model(self, url: str):
-        from sglang.srt.model_loader.loader import RemoteModelLoader
-
-        logger.info(f"Saving model to {url}")
-        RemoteModelLoader.save_model(self.model, self.model_config.model_path, url)
+        raise NotImplementedError(
+            "Remote model saving removed in DeepSeek-only build. "
+            "Use save_sharded_model() for local model saving instead."
+        )
 
     def save_sharded_model(
         self, path: str, pattern: Optional[str] = None, max_size: Optional[int] = None

@@ -64,7 +64,7 @@ class RadixKey:
     ):
         # token ids sequence
         self.token_ids = token_ids
-        # extra key (e.g. lora_id, cache_salt)
+        # extra key (e.g. cache_salt)
         self.extra_key = extra_key
         # is bigram key
         self.is_bigram = is_bigram
@@ -262,8 +262,7 @@ class RadixCache(BasePrefixCache):
 
         self.kv_event_queue = []
 
-        if params.enable_metrics:
-            self.init_metrics_collector()
+        # Prometheus metrics removed in DeepSeek-only build
 
         if self.token_to_kv_pool_allocator:
             self.device = self.token_to_kv_pool_allocator.device
@@ -791,7 +790,6 @@ class RadixCache(BasePrefixCache):
                         parent_block_hash=parent_block_hash,
                         token_ids=page_tokens,
                         block_size=len(page_tokens),
-                        lora_id=None,
                     )
                 )
 

@@ -100,7 +100,10 @@ class QuarkW4A4MXFP4(QuarkScheme):
         if use_fused_quant_gemm or x_s is not None:
             x_q = x
         else:
-            x_q, x_s = dynamic_mxfp4_quant(x)
+            raise NotImplementedError(
+                "Quark MXFP4 dynamic quantization is not supported. "
+                "Input must be pre-quantized (x_s not None) or use fused_quant_gemm path."
+            )
 
         if y is None:
             y = torch.empty(

@@ -1,5 +1,8 @@
 """
 Multi-modality utils
+
+Note: Multimodal support removed in DeepSeek-only build.
+This file provides stubs for compatibility with existing code.
 """
 
 import copy
@@ -14,15 +17,53 @@ import torch
 from torch import nn
 
 from sglang.srt.environ import envs
-from sglang.srt.layers.multimodal import gpu_tensor_hash
 from sglang.srt.managers.schedule_batch import (
     CudaIpcTensorTransportProxy,
     Modality,
     MultimodalDataItem,
     MultimodalInputs)
-from sglang.srt.mem_cache.multimodal_cache import EmbeddingResult, MultiModalStaticCache
+
+# Stubs for deleted multimodal modules (DeepSeek-only build)
+def gpu_tensor_hash(tensor):
+    """Stub: compute hash of GPU tensor."""
+    tensor = tensor.detach().contiguous()
+    if tensor.dtype == torch.bfloat16:
+        tensor = tensor.float()
+    tensor_cpu = tensor.cpu()
+    mv = memoryview(tensor_cpu.numpy())
+    hash_bytes = hashlib.sha256(mv.tobytes()).digest()[:8]
+    return int.from_bytes(hash_bytes, byteorder="big", signed=False)
+
+
+class EmbeddingResult:
+    """Stub for multimodal embedding result."""
+    def __init__(self, embedding=None):
+        self.embedding = embedding
+
+
+class MultiModalStaticCache:
+    """Stub for multimodal static cache."""
+    def __init__(self, max_size: int = 0):
+        self._cache = {}
+        self.max_size = max_size
+
+    def get(self, key):
+        return self._cache.get(key)
+
+    def set(self, key, value):
+        if self.max_size > 0 and len(self._cache) >= self.max_size:
+            return False
+        self._cache[key] = value
+        return True
+
+    @staticmethod
+    def combine_hashes(hashes):
+        combined = 0
+        for h in hashes:
+            combined ^= h
+        return combined
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.multimodal.evs import EVSEmbeddingResult
+EVSEmbeddingResult = None  # Placeholder for type hints
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import flatten_nested_list, print_warning_once
 from sglang.utils import logger
@@ -46,11 +87,8 @@ _EXTRA_POST_TOKENS = 0  # post chunk extra token (0 for the moment)
 
 def init_feature_buffer(device):
     global _GPU_FEATURE_BUFFER, _BUFFER_OFFSET
-    if (
-        device == "cpu"
-        or envs.SGLANG_MM_BUFFER_SIZE_MB.get() == 0
-        or _GPU_FEATURE_BUFFER is not None
-    ):
+    # NVIDIA CUDA only
+    if envs.SGLANG_MM_BUFFER_SIZE_MB.get() == 0 or _GPU_FEATURE_BUFFER is not None:
         return
     try:
         size_mb = envs.SGLANG_MM_BUFFER_SIZE_MB.get()

@@ -4,7 +4,7 @@ from sglang.srt.mem_cache.sparsity.algorithms import (
     DeepSeekNSAAlgorithm,
     QuestAlgorithm,
 )
-from sglang.srt.mem_cache.sparsity.backend import BackendAdaptor, FlashAttentionAdaptor
+from sglang.srt.mem_cache.sparsity.backend import BackendAdaptor
 from sglang.srt.mem_cache.sparsity.core import SparseConfig, SparseCoordinator
 from sglang.srt.mem_cache.sparsity.factory import (
     create_sparse_coordinator,
@@ -18,7 +18,6 @@ __all__ = [
     "QuestAlgorithm",
     "DeepSeekNSAAlgorithm",
     "BackendAdaptor",
-    "FlashAttentionAdaptor",
     "SparseConfig",
     "SparseCoordinator",
     "create_sparse_coordinator",

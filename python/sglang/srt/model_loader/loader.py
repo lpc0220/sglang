@@ -59,12 +59,6 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME
 
 from sglang.srt.configs.load_config import LoadConfig, LoadFormat
-from sglang.srt.connector import (
-    ConnectorType,
-    create_remote_connector,
-    get_connector_type,
-)
-from sglang.srt.connector.utils import parse_model_name
 from sglang.srt.distributed import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
@@ -92,9 +86,7 @@ from sglang.srt.model_loader.weight_utils import (
     fastsafetensors_weights_iterator,
     filter_duplicate_safetensors_files,
     filter_files_not_needed_for_inference,
-    get_gguf_extra_tensor_names,
     get_quant_config,
-    gguf_quant_weights_iterator,
     initialize_dummy_weights,
     multi_thread_pt_weights_iterator,
     multi_thread_safetensors_weights_iterator,
@@ -1817,23 +1809,10 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                 weight_name,
                 index,
             ) in model.bitsandbytes_stacked_params_mapping.items():
-                if (
-                    model_type in ["qwen2_vl", "qwen2_5_vl"]
-                    and "visual" in quant_param_name
-                ):
-                    break
                 if shard_name in quant_param_name:
                     shard_index = index
                     quant_param_name = quant_param_name.replace(shard_name, weight_name)
                     break
-
-            if (
-                model_type in ["qwen2_vl", "qwen2_5_vl"]
-                and "visual" in quant_param_name
-            ):
-                quant_param_name = quant_param_name.replace(
-                    r"attn.qkv.", r"attn.qkv_proj."
-                )
 
             if quant_param_name not in param_dict:
                 raise ValueError(
@@ -1889,450 +1868,6 @@ class BitsAndBytesModelLoader(BaseModelLoader):
 
                 self._load_weights(model_config, model)
 
-        return model.eval()
-
-
-class GGUFModelLoader(BaseModelLoader):
-    """
-    Model loader that can load GGUF files. This is useful for loading models
-    that are quantized with GGUF and saved in the GGUF format. This loader
-    supports loading both full models and sharded models.
-    """
-
-    def __init__(self, load_config: LoadConfig):
-        super().__init__(load_config)
-        if load_config.model_loader_extra_config:
-            raise ValueError(
-                f"Model loader extra config is not supported for "
-                f"load format {load_config.load_format}"
-            )
-
-    def _prepare_weights(self, model_name_or_path: str):
-        if os.path.isfile(model_name_or_path):
-            return model_name_or_path
-        else:
-            raise ValueError(f"{model_name_or_path} is not a file.")
-
-    def _get_gguf_weights_map(self, model_config: ModelConfig):
-        """
-        GGUF uses this naming convention for their tensors from HF checkpoint:
-        `blk.N.BB.weight` and `blk.N.BB.bias`
-        where N signifies the block number of a layer, and BB signifies the
-        attention/mlp layer components.
-        See "Standardized tensor names" in
-        https://github.com/ggerganov/ggml/blob/master/docs/gguf.md for details.
-        """
-
-        # only load the gguf module when needed
-        try:
-            import gguf
-
-            # FIXME: add version check for gguf
-        except ImportError as err:
-            raise ImportError(
-                "Please install gguf via `pip install gguf` to use gguf quantizer."
-            ) from err
-
-        config = model_config.hf_config
-        model_type = config.model_type
-        # hack: ggufs have a different name than transformers
-        if model_type == "cohere":
-            model_type = "command-r"
-        arch = None
-        for key, value in gguf.MODEL_ARCH_NAMES.items():
-            if value == model_type:
-                arch = key
-                break
-        if arch is None:
-            raise RuntimeError(f"Unknown gguf model_type: {model_type}")
-        num_layers = config.num_hidden_layers
-        name_map = gguf.get_tensor_name_map(arch, num_layers)
-        with torch.device("meta"):
-            dummy_model = AutoModelForCausalLM.from_config(config)
-        state_dict = dummy_model.state_dict()
-
-        gguf_to_hf_name_map = {}
-        for hf_name in state_dict:
-            name, suffix = hf_name.rsplit(".", 1)
-            gguf_name = name_map.get_name(name)
-            gguf_to_hf_name_map[f"{gguf_name}.{suffix}"] = hf_name
-        return gguf_to_hf_name_map
-
-    def _get_weights_iterator(
-        self, model_name_or_path: str, gguf_to_hf_name_map: Dict[str, str]
-    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
-        return gguf_quant_weights_iterator(model_name_or_path, gguf_to_hf_name_map)
-
-    def download_model(self, model_config: ModelConfig) -> None:
-        self._prepare_weights(model_config.model_path)
-
-    def load_model(
-        self,
-        *,
-        model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
-
-        local_model_path = self._prepare_weights(model_config.model_path)
-        gguf_weights_map = self._get_gguf_weights_map(model_config)
-        # we can only know if tie word embeddings after mapping weights
-        if "lm_head.weight" in get_gguf_extra_tensor_names(
-            local_model_path, gguf_weights_map
-        ):
-            model_config.hf_config.update({"tie_word_embeddings": True})
-
-        target_device = torch.device(device_config.device)
-        with set_default_torch_dtype(model_config.dtype):
-            with target_device:
-                model = _initialize_model(model_config, self.load_config)
-            model.load_weights(
-                self._get_weights_iterator(local_model_path, gguf_weights_map)
-            )
-
-            for _, module in model.named_modules():
-                quant_method = getattr(module, "quant_method", None)
-                if quant_method is not None:
-                    with device_loading_context(module, target_device):
-                        quant_method.process_weights_after_loading(module)
-        return model
-
-
-class RemoteInstanceModelLoader(BaseModelLoader):
-    """Model loader that can load Tensors from remote sglang instance."""
-
-    def __init__(self, load_config: LoadConfig):
-        super().__init__(load_config)
-        if load_config.model_loader_extra_config:
-            raise ValueError(
-                f"Model loader extra config is not supported for "
-                f"load format {load_config.load_format}"
-            )
-        self.remote_instance_transfer_engine_weight_info = None
-
-    def download_model(self, model_config: ModelConfig) -> None:
-        raise NotImplementedError
-
-    def load_model(
-        self,
-        *,
-        model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
-        logger.info("Loading weights from remote instance ...")
-        load_config = self.load_config
-
-        assert load_config.load_format == LoadFormat.REMOTE_INSTANCE, (
-            f"Model loader {self.load_config.load_format} is not supported for "
-            f"load format {load_config.load_format}"
-        )
-
-        with set_default_torch_dtype(model_config.dtype):
-            with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config)
-
-        if (
-            load_config.remote_instance_weight_loader_backend
-            == RemoteInstanceWeightLoaderBackend.NCCL
-        ):
-            model_weights = f"instance://{load_config.remote_instance_weight_loader_seed_instance_ip}:{load_config.remote_instance_weight_loader_send_weights_group_ports[load_config.tp_rank]}"
-            with create_remote_connector(model_weights, device_config.device) as client:
-                connector_type = get_connector_type(client)
-                if connector_type == ConnectorType.INSTANCE:
-                    self.load_model_from_remote_instance_by_nccl(
-                        model, client, model_config, device_config
-                    )
-                else:
-                    raise ValueError(
-                        f"Unsupported connector type {connector_type} for "
-                        f"remote tensor model loading."
-                    )
-        elif (
-            load_config.remote_instance_weight_loader_backend
-            == RemoteInstanceWeightLoaderBackend.TRANSFER_ENGINE
-        ):
-            if load_config.remote_instance_weight_loader_transfer_engine is None:
-                raise RuntimeError(
-                    "Transfer engine is not initialized for remote instance "
-                    "model loader with `transfer_engine` backend. "
-                )
-            logger.info(
-                "TransferEngine registering memory regions (this may take a few seconds)..."
-            )
-            # register memory region
-            self.remote_instance_transfer_engine_weight_info = register_memory_region(
-                model, load_config.remote_instance_weight_loader_transfer_engine
-            )
-            logger.info(
-                "TransferEngine memory regions have been successfully registered."
-            )
-
-            # transfer weights
-            success = self.load_model_from_remote_instance_by_transfer_engine(
-                model,
-                load_config.remote_instance_weight_loader_transfer_engine,
-                f"http://{load_config.remote_instance_weight_loader_seed_instance_ip}:{load_config.remote_instance_weight_loader_seed_instance_service_port}",
-                load_config.tp_rank,
-            )
-            if not success:
-                raise RuntimeError(
-                    "Failed to load weights from remote instance via transfer engine."
-                )
-        else:
-            raise ValueError("Invalid remote instance weight loader backend.")
-
-        return model.eval()
-
-    def load_model_from_remote_instance_by_nccl(
-        self, model, client, model_config: ModelConfig, device_config: DeviceConfig
-    ) -> nn.Module:
-        load_config = self.load_config
-        instance_ip = socket.gethostbyname(socket.gethostname())
-        start_build_group_tic = time.time()
-        client.build_group(
-            gpu_id=device_config.gpu_id,
-            tp_rank=load_config.tp_rank,
-            instance_ip=instance_ip,
-        )
-        torch.cuda.synchronize()
-        end_build_group_tic = time.time()
-        logger.debug(
-            f"finish building group for remote instance, time used: {(end_build_group_tic - start_build_group_tic):.4f}s"
-        )
-
-        if load_config.tp_rank == 0:
-            t = threading.Thread(
-                target=trigger_transferring_weights_request,
-                args=(
-                    load_config.remote_instance_weight_loader_seed_instance_ip,
-                    load_config.remote_instance_weight_loader_seed_instance_service_port,
-                    load_config.remote_instance_weight_loader_send_weights_group_ports,
-                    instance_ip,
-                ),
-            )
-            t.start()
-
-        start_get_weights_tic = time.time()
-        with set_default_torch_dtype(model_config.dtype):
-            for _, tensor in model.named_parameters():
-                torch.distributed.broadcast(
-                    tensor.data,
-                    src=0,
-                    group=client._model_update_group,
-                )
-            torch.cuda.synchronize()
-
-            if hasattr(model, "post_load_weights"):
-                model.post_load_weights()
-        end_get_weights_tic = time.time()
-        logger.debug(
-            f"finish getting all weights from remote instance, time used: {(end_get_weights_tic - start_get_weights_tic):.4f}s"
-        )
-        # destroy the process group after loading weights
-        torch.distributed.distributed_c10d.destroy_process_group(
-            client._model_update_group
-        )
-        torch.cuda.empty_cache()
-
-    def load_model_from_remote_instance_by_transfer_engine(
-        self, model, transfer_engine, seed_url, tp_rank
-    ) -> bool:
-        # get remote weights metadata from source instance
-        seed_transfer_engine_session_id, seed_transfer_engine_weight_info = (
-            get_remote_instance_transfer_engine_info_per_rank(seed_url, tp_rank)
-        )
-        if (
-            seed_transfer_engine_session_id is None
-            or seed_transfer_engine_weight_info is None
-        ):
-            logger.error("Cannot get transfer engine session or weight info.")
-            return False
-
-        # prepare local/remote RDMA keys
-        seed_ptr_list = []
-        client_ptr_list = []
-        client_len_list = []
-        for name, tensor in model.named_parameters():
-            weight_info = seed_transfer_engine_weight_info.get(name, None)
-            if weight_info is None:
-                logger.error(f"Cannot find weight info for {name}.")
-                return False
-
-            seed_ptr, seed_numel, seed_element_size = weight_info
-            if (
-                seed_numel != tensor.numel()
-                or seed_element_size != tensor.element_size()
-            ):
-                logger.error(
-                    f"Weight info does not match for {name}, "
-                    f"expected ({seed_numel}, {seed_element_size}), "
-                    f"got ({tensor.numel()}, {tensor.element_size()})"
-                )
-                return False
-            client_ptr = tensor.data_ptr()
-            client_len = tensor.numel() * tensor.element_size()
-            seed_ptr_list.append(seed_ptr)
-            client_ptr_list.append(client_ptr)
-            client_len_list.append(client_len)
-
-        # load weights from source instance through TransferEngine
-        ret = transfer_engine.batch_transfer_sync_read(
-            seed_transfer_engine_session_id,
-            client_ptr_list,
-            seed_ptr_list,
-            client_len_list,
-        )
-        if ret < 0:
-            logger.error(f"batch transfer failed, error: {ret}")
-            return False
-
-        if hasattr(model, "post_load_weights"):
-            model.post_load_weights()
-
-        return True
-
-
-class RemoteModelLoader(BaseModelLoader):
-    """Model loader that can load Tensors from remote database."""
-
-    def __init__(self, load_config: LoadConfig):
-        super().__init__(load_config)
-        # TODO @DellCurry: move to s3 connector only
-        set_runai_streamer_env(load_config)
-
-    def _get_weights_iterator_kv(
-        self,
-        client,
-    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
-        """Get an iterator for the model weights from remote storage."""
-        assert get_connector_type(client) == ConnectorType.KV
-        rank = get_tensor_model_parallel_rank()
-        return client.weight_iterator(rank)
-
-    def _get_weights_iterator_fs(
-        self,
-        client,
-    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
-        """Get an iterator for the model weights from remote storage."""
-        assert get_connector_type(client) == ConnectorType.FS
-        return client.weight_iterator()
-
-    def download_model(self, model_config: ModelConfig) -> None:
-        pass
-
-    @staticmethod
-    def save_model(
-        model: torch.nn.Module,
-        model_path: str,
-        url: str,
-    ) -> None:
-        with create_remote_connector(url) as client:
-            assert get_connector_type(client) == ConnectorType.KV
-            model_name = parse_model_name(url)
-            rank = get_tensor_model_parallel_rank()
-            state_dict = ShardedStateLoader._filter_subtensors(model.state_dict())
-            for key, tensor in state_dict.items():
-                r_key = f"{model_name}/keys/rank_{rank}/{key}"
-                client.set(r_key, tensor)
-
-            for root, _, files in os.walk(model_path):
-                for file_name in files:
-                    # ignore hidden files
-                    if file_name.startswith("."):
-                        continue
-                    if os.path.splitext(file_name)[1] in (".json", ".py"):
-                        file_path = os.path.join(root, file_name)
-                        with open(file_path, encoding="utf-8") as file:
-                            file_content = file.read()
-                            f_key = f"{model_name}/files/{file_name}"
-                            client.setstr(f_key, file_content)
-
-    def _load_model_from_remote_kv(
-        self, model: nn.Module, model_config: ModelConfig, client
-    ):
-        for _, module in model.named_modules():
-            quant_method = getattr(module, "quant_method", None)
-            if quant_method is not None:
-                quant_method.process_weights_after_loading(module)
-        weights_iterator = self._get_weights_iterator_kv(client)
-        state_dict = ShardedStateLoader._filter_subtensors(model.state_dict())
-        for key, tensor in weights_iterator:
-            # If loading with LoRA enabled, additional padding may
-            # be added to certain parameters. We only load into a
-            # narrowed view of the parameter data.
-            param_data = state_dict[key].data
-            param_shape = state_dict[key].shape
-            for dim, size in enumerate(tensor.shape):
-                if size < param_shape[dim]:
-                    param_data = param_data.narrow(dim, 0, size)
-            if tensor.shape != param_shape:
-                logger.warning(
-                    "loading tensor of shape %s into " "parameter '%s' of shape %s",
-                    tensor.shape,
-                    key,
-                    param_shape,
-                )
-            param_data.copy_(tensor)
-            state_dict.pop(key)
-        if state_dict:
-            raise ValueError(f"Missing keys {tuple(state_dict)} in loaded state!")
-
-        post_load_weights(model, model_config)
-
-    def _load_model_from_remote_fs(
-        self, model, client, model_config: ModelConfig, device_config: DeviceConfig
-    ) -> nn.Module:
-
-        target_device = torch.device(device_config.device)
-        with set_default_torch_dtype(model_config.dtype):
-            model.load_weights(self._get_weights_iterator_fs(client))
-
-            for _, module in model.named_modules():
-                quant_method = getattr(module, "quant_method", None)
-                if quant_method is not None:
-                    # When quant methods need to process weights after loading
-                    # (for repacking, quantizing, etc), they expect parameters
-                    # to be on the global target device. This scope is for the
-                    # case where cpu offloading is used, where we will move the
-                    # parameters onto device for processing and back off after.
-                    with device_loading_context(module, target_device):
-                        quant_method.process_weights_after_loading(module)
-
-    def load_model(
-        self,
-        *,
-        model_config: ModelConfig,
-        device_config: DeviceConfig,
-    ) -> nn.Module:
-        logger.info("Loading weights from remote storage ...")
-        start = time.perf_counter()
-        load_config = self.load_config
-
-        assert load_config.load_format == LoadFormat.REMOTE, (
-            f"Model loader {self.load_config.load_format} is not supported for "
-            f"load format {load_config.load_format}"
-        )
-
-        model_weights = model_config.model_path
-        if hasattr(model_config, "model_weights"):
-            model_weights = model_config.model_weights
-
-        with set_default_torch_dtype(model_config.dtype):
-            with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config)
-
-            with create_remote_connector(
-                model_weights, device=device_config.device
-            ) as client:
-                connector_type = get_connector_type(client)
-                if connector_type == ConnectorType.KV:
-                    self._load_model_from_remote_kv(model, model_config, client)
-                elif connector_type == ConnectorType.FS:
-                    self._load_model_from_remote_fs(
-                        model, client, model_config, device_config
-                    )
-
-        end = time.perf_counter()
-        logger.info("Loaded weights from remote storage in %.2f seconds.", end - start)
         return model.eval()
 
 
@@ -2680,9 +2215,6 @@ def get_model_loader(
     if load_config.load_format == LoadFormat.BITSANDBYTES:
         return BitsAndBytesModelLoader(load_config)
 
-    if load_config.load_format == LoadFormat.GGUF:
-        return GGUFModelLoader(load_config)
-
     if load_config.load_format == LoadFormat.LAYERED:
         return LayeredModelLoader(load_config)
 
@@ -2708,10 +2240,16 @@ def get_model_loader(
         return QuantizedRLModelLoader(load_config)
 
     if load_config.load_format == LoadFormat.REMOTE:
-        return RemoteModelLoader(load_config)
+        raise NotImplementedError(
+            "Remote model loading removed in DeepSeek-only build. "
+            "Use local model path instead."
+        )
 
     if load_config.load_format == LoadFormat.REMOTE_INSTANCE:
-        return RemoteInstanceModelLoader(load_config)
+        raise NotImplementedError(
+            "Remote instance model loading removed in DeepSeek-only build. "
+            "Use local model path instead."
+        )
 
     if load_config.load_format == LoadFormat.PRIVATE:
         import importlib

@@ -44,9 +44,6 @@ class SchedulerProfilerMixin:
         self.profile_in_progress: bool = False
         self.merge_profiles = False
 
-        # For ROCM
-        self.rpd_profiler = None
-
     def init_profile(
         self: Scheduler,
         output_dir: Optional[str],
@@ -137,40 +134,13 @@ class SchedulerProfilerMixin:
             activity_map[a] for a in activities if a in activity_map
         ]
 
-        if "RPD" in activities:  # for ROCM
-            from rpdTracerControl import rpdTracerControl
-
-            rpdTracerControl.skipCreate()
-
-            self.rpd_profile_path = os.path.join(
-                self.torch_profiler_output_dir,
-                "rpd-" + str(time.time()) + f"-TP-{self.tp_rank}" + ".trace.json.gz")
-
-            if self.tp_rank == 0:
-                import sqlite3
-
-                from rocpd.schema import RocpdSchema
-
-                if os.path.exists("trace.rpd"):
-                    os.unlink("trace.rpd")
-                schema = RocpdSchema()
-                connection = sqlite3.connect("trace.rpd")
-                schema.writeSchema(connection)
-                connection.commit()
-                del connection
-            torch.distributed.barrier(self.dp_tp_cpu_group)
-
-            self.rpd_profiler = rpdTracerControl()
-            self.rpd_profiler.setPythonTrace(True)
-            self.rpd_profiler.start()
-            self.rpd_profiler.rangePush("", "rpd profile range", "")
-            self.profile_in_progress = True
-        elif torchprof_activities:
+        # NVIDIA CUDA only profiling
+        if torchprof_activities:
             self.torch_profiler = torch.profiler.profile(
                 activities=torchprof_activities,
                 with_stack=with_stack if with_stack is not None else True,
                 record_shapes=record_shapes if record_shapes is not None else False,
-                on_trace_ready=None,  # NPU removed, CUDA-only
+                on_trace_ready=None,
             )
             self.torch_profiler.start()
             self.profile_in_progress = True
@@ -262,19 +232,6 @@ class SchedulerProfilerMixin:
                     os.path.join(self.torch_profiler_output_dir, filename)
                 )
             torch.distributed.barrier(self.dp_tp_cpu_group)
-
-        if self.rpd_profiler is not None:
-            self.rpd_profiler.rangePop()
-            self.rpd_profiler.stop()
-            self.rpd_profiler.flush()
-
-            torch.distributed.barrier(self.dp_tp_cpu_group)
-            if self.tp_rank == 0:
-                from sglang.srt.utils.rpd_utils import rpd_to_chrome_trace
-
-                rpd_to_chrome_trace("trace.rpd", self.rpd_profile_path)
-            self.rpd_profiler = None
-            self.rpd_profile_path = None
 
         if self.profiler_activities is not None and "MEM" in self.profiler_activities:
             memory_profile_path = os.path.join(

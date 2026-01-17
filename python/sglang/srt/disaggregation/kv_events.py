@@ -61,7 +61,7 @@ class BlockStored(KVCacheEvent):
     parent_block_hash: Optional[int]
     token_ids: list[int]
     block_size: int
-    lora_id: Optional[int]
+    # LoRA removed in DeepSeek-only build
 
 
 class BlockRemoved(KVCacheEvent):

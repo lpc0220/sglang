@@ -86,7 +86,6 @@ class RequestFuncInput:
     prompt_len: int
     output_len: int
     model: str
-    lora_name: str
     image_data: Optional[List[str]]
     extra_request_body: Dict[str, Any]
     timestamp: Optional[float] = None
@@ -239,11 +238,6 @@ async def async_request_openai_completions(
             **request_func_input.extra_request_body,
         }
 
-        # hack to accommodate different LoRA conventions between SGLang and vLLM.
-        if request_func_input.lora_name:
-            payload["model"] = request_func_input.lora_name
-            payload["lora_path"] = request_func_input.lora_name
-
         if request_func_input.image_data:
             payload.update({"image_data": request_func_input.image_data})
 
@@ -382,11 +376,6 @@ async def async_request_openai_chat_completions(
             "ignore_eos": not args.disable_ignore_eos,
             **request_func_input.extra_request_body,
         }
-
-        # hack to accommodate different LoRA conventions between SGLang and vLLM.
-        if request_func_input.lora_name:
-            payload["model"] = request_func_input.lora_name
-            payload["lora_path"] = request_func_input.lora_name
 
         headers = get_request_headers()
         if request_func_input.routing_key:
@@ -583,7 +572,6 @@ async def async_request_sglang_generate(
                 "ignore_eos": not args.disable_ignore_eos,
             },
             "stream": not args.disable_stream,
-            "lora_path": request_func_input.lora_name,
             "return_logprob": args.return_logprob,
             "return_routed_experts": args.return_routed_experts,
             "logprob_start_len": -1,
@@ -2164,9 +2152,6 @@ async def benchmark(
     request_rate: float,
     max_concurrency: Optional[int],
     disable_tqdm: bool,
-    lora_names: List[str],
-    lora_request_distribution: Optional[str],
-    lora_zipf_alpha: Optional[float],
     extra_request_body: Dict[str, Any],
     profile: bool,
     pd_separated: bool = False,
@@ -2227,11 +2212,6 @@ async def benchmark(
         # For all other datasets, input_requests is a list of DatasetRow objects
         test_request = input_requests[0]
 
-    if lora_names is not None and len(lora_names) != 0:
-        lora_name = lora_names[0]
-    else:
-        lora_name = None
-
     # Create the test input once
     test_input = RequestFuncInput(
         model=model_id,
@@ -2239,7 +2219,6 @@ async def benchmark(
         api_url=api_url,
         prompt_len=test_request.prompt_len,
         output_len=min(test_request.output_len, 32),
-        lora_name=lora_name,
         image_data=test_request.image_data,
         extra_request_body=extra_request_body,
     )
@@ -2313,40 +2292,14 @@ async def benchmark(
     else:
         request_generator = get_request(input_requests, request_rate)
 
-    # Prepare LoRA request distribution parameters
-    if lora_request_distribution == "distinct":
-        lora_idx = 0
-    elif lora_request_distribution == "skewed":
-        weights = np.array([lora_zipf_alpha**-i for i in range(len(lora_names))])
-        lora_probs = weights / np.sum(weights)
-    else:
-        lora_idx = None
-        lora_probs = None
-
     pbar = None if disable_tqdm else tqdm(total=pbar_total)
     async for request in request_generator:
-        if lora_names is not None and len(lora_names) != 0:
-            if lora_request_distribution == "uniform":
-                lora_name = random.choice(lora_names)
-            elif lora_request_distribution == "distinct":
-                lora_name = lora_names[lora_idx]
-                lora_idx = (lora_idx + 1) % len(lora_names)
-            else:
-                assert (
-                    lora_request_distribution == "skewed"
-                ), f"Unexpected lora_request_distribution: {lora_request_distribution}. Expected 'skewed'."
-
-                lora_name = np.random.choice(lora_names, p=lora_probs)
-        else:
-            lora_name = None
-
         request_func_input = RequestFuncInput(
             model=model_id,
             prompt=request.prompt,
             api_url=api_url,
             prompt_len=request.prompt_len,
             output_len=request.output_len,
-            lora_name=lora_name,
             image_data=request.image_data,
             extra_request_body=extra_request_body,
             timestamp=request.timestamp,
@@ -2768,15 +2721,6 @@ def run_benchmark(args_: argparse.Namespace):
             not args.tokenize_prompt
         ), "`--tokenize-prompt` not compatible with image dataset"
 
-    if args.lora_request_distribution in ["distinct", "skewed"]:
-        assert (
-            args.lora_name is not None and len(args.lora_name) > 1
-        ), "More than 1 LoRA adapter must be specified via --lora-name to use 'distinct' or 'skewed' request distribution."
-
-    assert (
-        args.lora_zipf_alpha > 1
-    ), f"Got invalid value for --lora-zipf-alpha of {args.lora_zipf_alpha}. It must be greater than 1."
-
     print(f"{args}\n")
 
     # Read dataset
@@ -2790,17 +2734,6 @@ def run_benchmark(args_: argparse.Namespace):
     if not hasattr(args, "flush_cache"):
         args.flush_cache = False
 
-    # Prepare LoRA arguments
-    lora_request_distribution = (
-        args.lora_request_distribution if args.lora_name is not None else None
-    )
-
-    lora_zipf_alpha = (
-        args.lora_zipf_alpha
-        if args.lora_name is not None and args.lora_request_distribution == "skewed"
-        else None
-    )
-
     return asyncio.run(
         benchmark(
             backend=backend,
@@ -2812,9 +2745,6 @@ def run_benchmark(args_: argparse.Namespace):
             request_rate=args.request_rate,
             max_concurrency=args.max_concurrency,
             disable_tqdm=args.disable_tqdm,
-            lora_names=args.lora_name,
-            lora_request_distribution=lora_request_distribution,
-            lora_zipf_alpha=lora_zipf_alpha,
             extra_request_body=extra_request_body,
             profile=args.profile,
             pd_separated=args.pd_separated,
@@ -2838,13 +2768,6 @@ def set_ulimit(target_soft_limit=65535):
             resource.setrlimit(resource_type, (target_soft_limit, current_hard))
         except ValueError as e:
             print(f"Fail to set RLIMIT_NOFILE: {e}")
-
-
-class LoRAPathAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, [])
-        for lora_name in values:
-            getattr(namespace, self.dest).append(lora_name)
 
 
 if __name__ == "__main__":
@@ -3068,35 +2991,6 @@ if __name__ == "__main__":
     parser.add_argument("--profile-num-steps", type=int, default=None)
     parser.add_argument("--profile-by-stage", action="store_true", default=False)
     parser.add_argument("--profile-stages", nargs="+", default=None)
-    parser.add_argument(
-        "--lora-name",
-        type=str,
-        nargs="*",
-        default=None,
-        action=LoRAPathAction,
-        help="The names of LoRA adapters. You can provide a list of names in the format {name} {name} {name}...",
-    )
-    parser.add_argument(
-        "--lora-request-distribution",
-        type=str,
-        default="uniform",
-        choices=[
-            "uniform",
-            "distinct",
-            "skewed",
-        ],
-        help="What distribution to sample the LoRA adapters specified in --lora-name. Borrowed from the Punica paper. "
-        "'distinct' distribution means selecting a new LoRA adapter for every request. "
-        "'skewed' distribution follows the Zipf distribution, where the number of requests "
-        "to model i specified in --lora-name is α times the number of requests for model i+1, "
-        "where α > 1.",
-    )
-    parser.add_argument(
-        "--lora-zipf-alpha",
-        type=float,
-        default=1.5,
-        help="The parameter to use for the Zipf distribution when --lora-request-distribution='skewed'.",
-    )
     parser.add_argument(
         "--prompt-suffix",
         type=str,

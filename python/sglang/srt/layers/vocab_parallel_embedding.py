@@ -387,12 +387,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         output_dim = getattr(param, "output_dim", None)
         packed_dim = getattr(param, "packed_dim", None)
 
-        # If the parameter is a gguf weight, then load it directly.
-        if getattr(param, "is_gguf_weight_type", None):
-            param.data.copy_(loaded_weight)
-            param.weight_type = loaded_weight.item()
-            return
-        elif isinstance(param, UninitializedParameter):
+        if isinstance(param, UninitializedParameter):
             shape = list(loaded_weight.shape)
             if output_dim is not None:
                 shape[output_dim] = shape[output_dim] // self.tp_size
@@ -525,12 +520,8 @@ class ParallelLMHead(VocabParallelEmbedding):
 
     def tie_weights(self, embed_tokens: VocabParallelEmbedding):
         """Tie the weights with word embeddings."""
-        # GGUF quantized embed_tokens.
-        if self.quant_config and self.quant_config.get_name() == "gguf":
-            return embed_tokens
-        else:
-            self.weight = embed_tokens.weight
-            return self
+        self.weight = embed_tokens.weight
+        return self
 
     def forward(self, input_):
         del input_

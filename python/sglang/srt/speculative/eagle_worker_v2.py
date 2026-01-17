@@ -221,32 +221,21 @@ class EagleDraftWorker(BaseDraftWorker):
         if self.server_args.disable_cuda_graph:
             return
 
-        Device2DraftCudaGraphRunner = {
-            "npu": EAGLEDraftNpuGraphRunner,
-            "cuda": EAGLEDraftCudaGraphRunner,
-        }
-        # Capture draft
+        # Capture draft (NVIDIA CUDA only)
         if self.speculative_num_steps > 1:
             tic = time.perf_counter()
             before_mem = get_available_gpu_memory(self.device, self.gpu_id)
             logger.info(
                 f"Capture draft cuda graph begin. This can take up to several minutes. avail mem={before_mem:.2f} GB"
             )
-            self.cuda_graph_runner = Device2DraftCudaGraphRunner[
-                self.target_worker.device
-            ](self)
+            self.cuda_graph_runner = EAGLEDraftCudaGraphRunner(self)
             after_mem = get_available_gpu_memory(self.device, self.gpu_id)
             logger.info(
                 f"Capture draft cuda graph end. Time elapsed: {time.perf_counter() - tic:.2f} s. mem usage={(before_mem - after_mem):.2f} GB. avail mem={after_mem:.2f} GB."
             )
 
-        Device2ExtendCudaGraphRunner = {
-            "npu": EAGLEDraftExtendNpuGraphRunner,
-            "cuda": EAGLEDraftExtendCudaGraphRunner,
-        }
-        # Capture extend
+        # Capture extend (NVIDIA CUDA only)
         # TODO: support draft extend cuda graph for more attention backends
-        # NPU removed, CUDA-only
         if self.draft_extend_attn_backend and (
             _is_cuda
             and isinstance(self.draft_attn_backend, TritonMultiStepDraftBackend)
@@ -256,9 +245,7 @@ class EagleDraftWorker(BaseDraftWorker):
             logger.info(
                 f"Capture draft extend cuda graph begin. This can take up to several minutes. avail mem={before_mem:.2f} GB"
             )
-            self.cuda_graph_runner_for_draft_extend = Device2ExtendCudaGraphRunner[
-                self.target_worker.device
-            ](self)
+            self.cuda_graph_runner_for_draft_extend = EAGLEDraftExtendCudaGraphRunner(self)
             after_mem = get_available_gpu_memory(self.device, self.gpu_id)
             logger.info(
                 f"Capture draft extend cuda graph end. Time elapsed: {time.perf_counter() - tic:.2f} s. mem usage={(before_mem - after_mem):.2f} GB. avail mem={after_mem:.2f} GB."

@@ -47,14 +47,11 @@ from sglang.srt.managers.io_struct import (
     GenerateReqInput,
     GetWeightsByNameReqInput,
     InitWeightsUpdateGroupReqInput,
-    LoadLoRAAdapterFromTensorsReqInput,
-    LoadLoRAAdapterReqInput,
     MultimodalDataInputFormat,
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
     RpcReqInput,
     RpcReqOutput,
-    UnloadLoRAAdapterReqInput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
@@ -222,7 +219,7 @@ class Engine(EngineBase):
         logprob_start_len: Optional[Union[List[int], int]] = None,
         top_logprobs_num: Optional[Union[List[int], int]] = None,
         token_ids_logprob: Optional[Union[List[List[int]], List[int]]] = None,
-        lora_path: Optional[List[Optional[str]]] = None,
+        # LoRA removed in DeepSeek-only build
         custom_logit_processor: Optional[Union[List[str], str]] = None,
         return_hidden_states: bool = False,
         return_routed_experts: bool = False,
@@ -259,7 +256,7 @@ class Engine(EngineBase):
             logprob_start_len=logprob_start_len,
             top_logprobs_num=top_logprobs_num,
             token_ids_logprob=token_ids_logprob,
-            lora_path=lora_path,
+            # LoRA removed in DeepSeek-only build
             custom_logit_processor=custom_logit_processor,
             return_hidden_states=return_hidden_states,
             return_routed_experts=return_routed_experts,
@@ -310,7 +307,7 @@ class Engine(EngineBase):
         logprob_start_len: Optional[Union[List[int], int]] = None,
         top_logprobs_num: Optional[Union[List[int], int]] = None,
         token_ids_logprob: Optional[Union[List[List[int]], List[int]]] = None,
-        lora_path: Optional[List[Optional[str]]] = None,
+        # LoRA removed in DeepSeek-only build
         custom_logit_processor: Optional[Union[List[str], str]] = None,
         return_hidden_states: bool = False,
         stream: bool = False,
@@ -348,7 +345,7 @@ class Engine(EngineBase):
             logprob_start_len=logprob_start_len,
             top_logprobs_num=top_logprobs_num,
             token_ids_logprob=token_ids_logprob,
-            lora_path=lora_path,
+            # LoRA removed in DeepSeek-only build
             return_hidden_states=return_hidden_states,
             stream=stream,
             custom_logit_processor=custom_logit_processor,
@@ -601,44 +598,6 @@ class Engine(EngineBase):
             self.tokenizer_manager.get_weights_by_name(obj, None)
         )
 
-    def load_lora_adapter_from_tensors(
-        self, lora_name: str, tensors: List[Tuple[str, torch.Tensor]], config_dict: Dict
-    ):
-        # Load LoRA adapter again
-        serialized_tensors = MultiprocessingSerializer.serialize(
-            tensors, output_str=True
-        )
-        lora_req = LoadLoRAAdapterFromTensorsReqInput(
-            lora_name=lora_name,
-            config_dict=config_dict,
-            serialized_tensors=serialized_tensors,
-        )
-        return self.loop.run_until_complete(
-            self.tokenizer_manager.load_lora_adapter_from_tensors(lora_req, None)
-        )
-
-    def load_lora_adapter(self, lora_name: str, lora_path: str, pinned: bool = False):
-        """Load a new LoRA adapter without re-launching the engine."""
-
-        obj = LoadLoRAAdapterReqInput(
-            lora_name=lora_name,
-            lora_path=lora_path,
-            pinned=pinned,
-        )
-
-        return self.loop.run_until_complete(
-            self.tokenizer_manager.load_lora_adapter(obj, None)
-        )
-
-    def unload_lora_adapter(self, lora_name: str):
-        """Unload a LoRA adapter without re-launching the engine."""
-
-        obj = UnloadLoRAAdapterReqInput(lora_name=lora_name)
-
-        return self.loop.run_until_complete(
-            self.tokenizer_manager.unload_lora_adapter(obj, None)
-        )
-
     def release_memory_occupation(self, tags: Optional[List[str]] = None):
         obj = ReleaseMemoryOccupationReqInput(tags=tags)
         return self.loop.run_until_complete(
@@ -788,9 +747,7 @@ def _set_envs_and_config(server_args: ServerArgs):
         f"sglang-run-{time.time()}-{random.randint(0, 100000000)}"
     )
 
-    # Set prometheus env vars
-    if server_args.enable_metrics:
-        set_prometheus_multiproc_dir()
+    # Prometheus env vars removed in DeepSeek-only build
 
     # Set ulimit
     set_ulimit()
@@ -979,7 +936,7 @@ def _launch_subprocesses(
             return None, None, scheduler_infos, port_args
 
         launch_dummy_health_check_server(
-            server_args.host, server_args.port, server_args.enable_metrics
+            server_args.host, server_args.port
         )
 
         for proc in scheduler_procs:

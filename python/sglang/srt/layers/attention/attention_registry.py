@@ -114,40 +114,4 @@ def attn_backend_wrapper(runner: "ModelRunner", full_attn_backend: "AttentionBac
     Wrapper for special models like hybrid GDN, so we don't
     need to change the code of the original attention backend.
     """
-    assert not (
-        runner.hybrid_gdn_config is not None and runner.use_mla_backend
-    ), "hybrid_gdn can only be used with non-MLA models."
-
-    if cfg := runner.mambaish_config:
-        from sglang.srt.layers.attention.hybrid_linear_attn_backend import (
-            GDNAttnBackend,
-            HybridLinearAttnBackend,
-            KimiLinearAttnBackend,
-            Mamba2AttnBackend,
-        )
-        from sglang.srt.utils import is_blackwell
-
-        # Note: Removed check_environments() call as FLA module was deleted
-        # This function only checked Triton/Python versions and issued warnings
-        if runner.hybrid_gdn_config is not None:
-            if is_blackwell():
-                assert (
-                    runner.server_args.attention_backend == "triton"
-                    or runner.server_args.attention_backend == "trtllm_mha"
-                ), "triton or trtllm_mha backend are the only supported backends on Blackwell GPUs for hybrid GDN models, use --attention-backend triton or --attention-backend trtllm_mha to specify the backend."
-            logger.info(f"Using hybrid linear attention backend for hybrid GDN models.")
-            linear_attn_backend = GDNAttnBackend(runner)
-        elif runner.mamba2_config is not None:
-            linear_attn_backend = Mamba2AttnBackend(runner)
-        elif runner.kimi_linear_config is not None:
-            linear_attn_backend = KimiLinearAttnBackend(runner)
-        else:
-            raise ValueError(
-                "Expected hybrid GDN or NemotronH models, but got unknown model."
-            )
-        full_attn_layers = cfg.full_attention_layer_ids
-        return HybridLinearAttnBackend(
-            full_attn_backend, linear_attn_backend, full_attn_layers
-        )
-
     return full_attn_backend

@@ -29,7 +29,6 @@ import torch
 import torch.distributed
 
 from sglang.srt.environ import envs
-from sglang.srt.metrics.collector import ExpertDispatchCollector
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import Withable, get_int_env_var
@@ -669,9 +668,6 @@ class _UtilizationRateAccumulatorMixin(_Accumulator):
             self.window_sizes = [10, 100, 1000]
             self._history = _DequeCollection(maxlens=self.window_sizes)
             self._rank = torch.distributed.get_rank()
-            self._expert_dispatch_collector = ExpertDispatchCollector(
-                self._expert_location_metadata.ep_size
-            )
             self._metric_heatmap_collection_counter = 0
 
     def append(
@@ -736,25 +732,7 @@ class _UtilizationRateAccumulatorMixin(_Accumulator):
 
     # TODO refactor
     def _handle_metric_eplb_heatmap(self, gpu_physical_count: torch.Tensor):
-        # sglang:eplb_gpu_physical_count metric is disabled if SGLANG_EPLB_HEATMAP_COLLECTION_INTERVAL <= 0
-        interval = get_int_env_var("SGLANG_EPLB_HEATMAP_COLLECTION_INTERVAL", 0)
-        if interval > 0 and self._metric_heatmap_collection_counter % interval == 0:
-            for layer_idx in range(self._expert_location_metadata.num_layers):
-                count_of_layer = (
-                    self._expert_dispatch_collector.eplb_gpu_physical_count.labels(
-                        layer=str(layer_idx)
-                    )
-                )
-                # Exclude the +Inf bucket.
-                assert (
-                    self._expert_location_metadata.ep_size
-                    == len(count_of_layer._buckets) - 1
-                ), f"{self._expert_location_metadata.ep_size=}, {len(count_of_layer._buckets)=}"
-                for gpu_rank in range(self._expert_location_metadata.ep_size):
-                    count = gpu_physical_count[layer_idx, gpu_rank]
-                    if count > 0:
-                        count_of_layer._sum.inc(count * gpu_rank)
-                        count_of_layer._buckets[gpu_rank].inc(count)
+        # Metrics disabled - just increment the counter
         self._metric_heatmap_collection_counter += 1
 
 

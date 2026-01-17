@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING, List, Optional, Tuple, Type, Union
 import torch
 from torch.distributed import ProcessGroup
 
-from sglang.srt.configs.mamba_utils import Mamba2CacheParams
 from sglang.srt.constants import GPU_MEMORY_TYPE_KV_CACHE
 from sglang.srt.disaggregation.base import BaseKVManager, BaseKVReceiver, KVPoll
 from sglang.srt.disaggregation.utils import (
@@ -53,8 +52,6 @@ from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
 from sglang.srt.mem_cache.common import release_kv_cache
 from sglang.srt.mem_cache.memory_pool import (
-    HybridLinearKVPool,
-    HybridReqToTokenPool,
     KVCache,
     ReqToTokenPool,
 )
@@ -131,46 +128,6 @@ class DecodeReqToTokenPool:
 
     def clear(self):
         self.free_slots = list(range(self.size + self.pre_alloc_size))
-
-
-class HybridMambaDecodeReqToTokenPool(HybridReqToTokenPool):
-
-    def __init__(
-        self,
-        size: int,
-        max_context_len: int,
-        device: str,
-        enable_memory_saver: bool,
-        cache_params: "Mamba2CacheParams",
-        speculative_num_draft_tokens: int,
-        enable_mamba_extra_buffer: bool,
-        pre_alloc_size: int,
-    ):
-        DecodeReqToTokenPool.__init__(
-            self,
-            size=size,
-            max_context_len=max_context_len,
-            device=device,
-            enable_memory_saver=enable_memory_saver,
-            pre_alloc_size=pre_alloc_size,
-        )
-        self.mamba_ping_pong_track_buffer_size = (
-            2 if speculative_num_draft_tokens is None else 1
-        )
-        self.enable_mamba_extra_buffer = enable_mamba_extra_buffer
-        self.enable_memory_saver = enable_memory_saver
-        self._init_mamba_pool(
-            size=size + pre_alloc_size,
-            mamba_spec_state_size=size + pre_alloc_size,
-            cache_params=cache_params,
-            device=device,
-            enable_mamba_extra_buffer=self.enable_mamba_extra_buffer,
-            speculative_num_draft_tokens=speculative_num_draft_tokens,
-        )
-
-    def clear(self):
-        self.free_slots = list(range(self.size + self.pre_alloc_size))
-        self.mamba_pool.clear()
 
 
 @dataclass
@@ -289,8 +246,6 @@ class DecodePreallocQueue:
 
             if isinstance(self.token_to_kv_pool, SWAKVPool):
                 kv_args.state_type = "swa"
-            elif isinstance(self.token_to_kv_pool, HybridLinearKVPool):
-                kv_args.state_type = "mamba"
             else:
                 kv_args.state_type = "none"
         else:
@@ -436,8 +391,6 @@ class DecodePreallocQueue:
                     error_message,
                     status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
-                if self.scheduler.enable_metrics:
-                    self.scheduler.metrics_collector.increment_bootstrap_failed_reqs()
             else:
                 raise ValueError(f"Unexpected poll case: {poll}")
 
@@ -524,16 +477,7 @@ class DecodePreallocQueue:
             page_size = self.token_to_kv_pool_allocator.page_size
 
             # Prepare extra pool indices for hybrid models
-            if isinstance(self.token_to_kv_pool, HybridLinearKVPool):
-                # Mamba hybrid model: single mamba state index
-                state_indices = [
-                    self.req_to_token_pool.req_index_to_mamba_index_mapping[
-                        decode_req.req.req_pool_idx
-                    ]
-                    .cpu()
-                    .numpy()
-                ]
-            elif isinstance(self.token_to_kv_pool, SWAKVPool):
+            if isinstance(self.token_to_kv_pool, SWAKVPool):
                 # SWA hybrid model: send decode-side SWA window indices
                 seq_len = len(decode_req.req.origin_input_ids)
                 window_size = self.scheduler.sliding_window_size
@@ -645,10 +589,7 @@ class DecodePreallocQueue:
 
     def _pre_alloc(self, req: Req) -> torch.Tensor:
         """Pre-allocate the memory for req_to_token and token_kv_pool"""
-        if isinstance(self.req_to_token_pool, HybridMambaDecodeReqToTokenPool):
-            req_pool_indices = self.req_to_token_pool.alloc(1, [req])
-        else:
-            req_pool_indices = self.req_to_token_pool.alloc(1)
+        req_pool_indices = self.req_to_token_pool.alloc(1)
 
         assert (
             req_pool_indices is not None
@@ -789,8 +730,6 @@ class DecodeTransferQueue:
                 # release pre-allocated kv cache, but don't insert into the tree since it's failed
                 release_kv_cache(decode_req.req, self.tree_cache, is_insert=False)
                 indices_to_remove.add(i)
-                if self.scheduler.enable_metrics:
-                    self.scheduler.metrics_collector.increment_transfer_failed_reqs()
                 continue
             elif poll == KVPoll.Success:
                 self._commit_transfer_to_req(decode_req)

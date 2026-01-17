@@ -108,8 +108,7 @@ class BaseFormatDetector(ABC):
         Check if buffer ends with a partial bot_token.
         Return the length of the partial bot_token.
 
-        For some format, the bot_token is not a token in model's vocabulary, such as
-        `[TOOL_CALLS] [` in Mistral.
+        For some format, the bot_token is not a token in model's vocabulary.
         """
         for i in range(1, min(len(buffer) + 1, len(bot_token))):
             if bot_token.startswith(buffer[-i:]):
@@ -128,7 +127,7 @@ class BaseFormatDetector(ABC):
         3. Multiple tool calls are separated by "; " or ", "
 
         Examples of incompatible formats (need custom implementation, may reuse some logic from this class):
-        - Each tool call is wrapped in a separate block: See Qwen25Detector
+        - Each tool call is wrapped in a separate block
         - Multiple separate blocks: [TOOL_CALLS] [...] \n [TOOL_CALLS] [...]
         - Tool call is Pythonic style
 

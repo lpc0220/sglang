@@ -105,7 +105,7 @@ class PetitNvFp4Config(QuantizationConfig):
     @classmethod
     def is_petit_nvfp4_compatible(cls, quant_config: Dict[str, Any]) -> bool:
         quant_method = quant_config.get("quant_method", "").lower()
-        return False  # HIP removed, CUDA-only
+        return False
 
     def is_layer_excluded(self, prefix: str, exclude_modules: list):
         for pattern in exclude_modules:

@@ -18,17 +18,14 @@ except ImportError:
     ops = None
     VLLM_AVAILABLE = False
 
-from sglang.srt.utils import is_hip
-
-_is_hip = is_hip()
-
 # CI environment detection
 IS_CI = (
     os.getenv("CI", "false").lower() == "true"
     or os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
 )
 
-fp8_type_ = torch.float8_e4m3fnuz if _is_hip else torch.float8_e4m3fn
+# NVIDIA CUDA only - use standard FP8 type
+fp8_type_ = torch.float8_e4m3fn
 
 
 def vllm_scaled_fp8_quant(

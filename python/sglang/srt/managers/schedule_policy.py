@@ -35,7 +35,6 @@ import torch
 from sglang.srt.layers.attention.nsa.utils import is_nsa_prefill_cp_in_seq_split
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
-from sglang.srt.mem_cache.mamba_radix_cache import MambaRadixCache
 from sglang.srt.mem_cache.radix_cache import RadixCache, RadixKey, TreeNode
 from sglang.srt.mem_cache.swa_memory_pool import SWATokenToKVPoolAllocator
 from sglang.srt.mem_cache.swa_radix_cache import SWARadixCache
@@ -407,7 +406,6 @@ class PrefillAdder:
         self.is_hybrid_swa = isinstance(
             self.token_to_kv_pool_allocator, SWATokenToKVPoolAllocator
         )
-        self.is_hybrid_ssm_cache = isinstance(self.tree_cache, MambaRadixCache)
 
         self.priority_scheduling_preemption_threshold = (
             priority_scheduling_preemption_threshold
@@ -434,11 +432,6 @@ class PrefillAdder:
                 self.token_to_kv_pool_allocator.swa_available_size()
                 + self.tree_cache.swa_evictable_size(),
             )
-        elif self.is_hybrid_ssm_cache:
-            available_and_evictable = (
-                self.token_to_kv_pool_allocator.available_size()
-                + self.tree_cache.full_evictable_size()
-            )
         else:
             available_and_evictable = (
                 self.token_to_kv_pool_allocator.available_size()
@@ -454,11 +447,6 @@ class PrefillAdder:
                 + self.tree_cache.full_evictable_size(),
                 self.token_to_kv_pool_allocator.swa_available_size()
                 + self.tree_cache.swa_evictable_size(),
-            )
-        elif self.is_hybrid_ssm_cache:
-            available_and_evictable = (
-                self.token_to_kv_pool_allocator.available_size()
-                + self.tree_cache.full_evictable_size()
             )
         else:
             available_and_evictable = (

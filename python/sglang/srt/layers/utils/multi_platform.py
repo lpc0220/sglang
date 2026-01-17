@@ -2,12 +2,11 @@ from typing import Callable
 
 from torch import nn
 
-from sglang.srt.utils import (
-    cpu_has_amx_support,
-    is_cuda,
-)
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
+
+
 class MultiPlatformOp(nn.Module):
     def __init__(self):
         super().__init__()
@@ -63,21 +62,9 @@ class MultiPlatformOp(nn.Module):
     def forward_cuda(self, *args, **kwargs):
         raise NotImplementedError
 
-    def forward_npu(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def forward_hip(self, *args, **kwargs):
-        return self.forward_cuda(*args, **kwargs)
-
-    def forward_xpu(self, *args, **kwargs):
-        return self.forward_native(*args, **kwargs)
-
-    def forward_hpu(self, *args, **kwargs):
-        return self.forward_native(*args, **kwargs)
-
-    def forward_cpu(self, *args, **kwargs):
-        return self.forward_native(*args, **kwargs)
-
     def dispatch_forward(self):
+        # NVIDIA CUDA only
         if _is_cuda:
             return self.forward_cuda
+        else:
+            return self.forward_native

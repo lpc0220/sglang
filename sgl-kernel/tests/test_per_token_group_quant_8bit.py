@@ -14,10 +14,10 @@ from sglang.srt.layers.quantization.fp8_kernel import (
     per_token_group_quant_8bit as triton_per_token_group_quant_8bit,
 )
 from sglang.srt.layers.quantization.fp8_kernel import sglang_per_token_group_quant_8bit
-from sglang.srt.utils import get_bool_env_var, is_hip
+from sglang.srt.utils import get_bool_env_var
 
-_is_hip = is_hip()
-fp8_type_ = torch.float8_e4m3fnuz if _is_hip else torch.float8_e4m3fn
+# NVIDIA CUDA only - use standard FP8 type
+fp8_type_ = torch.float8_e4m3fn
 
 configs = list(
     itertools.product(

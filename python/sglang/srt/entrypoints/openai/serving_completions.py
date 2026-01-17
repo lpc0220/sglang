@@ -22,9 +22,6 @@ from sglang.srt.entrypoints.openai.utils import (
     to_openai_style_logprobs,
 )
 from sglang.srt.managers.io_struct import GenerateReqInput
-from sglang.srt.parser.code_completion_parser import (
-    generate_completion_prompt_from_request,
-)
 from sglang.utils import convert_json_schema_to_str
 
 if TYPE_CHECKING:
@@ -68,10 +65,8 @@ class OpenAIServingCompletion(OpenAIServingBase):
                 "Echo is not compatible with logprobs. "
                 "To compute logprobs of input prompt, please use the native /generate API."
             )
-        # Process prompt
+        # DeepSeek-only build: completion_template_name is always None
         prompt = request.prompt
-        if self.template_manager.completion_template_name is not None:
-            prompt = generate_completion_prompt_from_request(request)
 
         # Set logprob start length based on echo and logprobs
         if request.echo and request.logprobs:
@@ -93,16 +88,7 @@ class OpenAIServingCompletion(OpenAIServingBase):
         # Extract custom labels from raw request headers
         custom_labels = self.extract_custom_labels(raw_request)
 
-        # Resolve LoRA adapter from model parameter or explicit lora_path
-        lora_path = self._resolve_lora_path(request.model, request.lora_path)
-        if lora_path:
-            first_adapter = (
-                lora_path
-                if isinstance(lora_path, str)
-                else next((a for a in lora_path if a), None)
-            )
-            if first_adapter:
-                self._validate_lora_enabled(first_adapter)
+        # LoRA removed in DeepSeek-only build
 
         adapted_request = GenerateReqInput(
             **prompt_kwargs,
@@ -112,7 +98,7 @@ class OpenAIServingCompletion(OpenAIServingBase):
             logprob_start_len=logprob_start_len,
             return_text_in_logprobs=True,
             stream=request.stream,
-            lora_path=lora_path,
+            # LoRA removed in DeepSeek-only build
             bootstrap_host=request.bootstrap_host,
             bootstrap_port=request.bootstrap_port,
             bootstrap_room=request.bootstrap_room,

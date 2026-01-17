@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 
-from sglang.srt.dllm.config import DllmConfig
+DllmConfig = None
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 
 # Copyright 2023-2024 SGLang Team
@@ -59,9 +59,6 @@ from sglang.srt.distributed.parallel_state import get_tensor_model_parallel_rank
 from sglang.srt.environ import envs
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
 
-# FLA (Flash Linear Attention) chunk size constant
-# Previously from sglang.srt.layers.attention.fla.chunk_delta_h
-FLA_CHUNK_SIZE = 64
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
 from sglang.srt.mem_cache.common import (
     alloc_for_decode,
@@ -69,15 +66,9 @@ from sglang.srt.mem_cache.common import (
     evict_from_tree_cache,
     release_kv_cache,
 )
-from sglang.srt.mem_cache.mamba_radix_cache import MambaRadixCache
 from sglang.srt.mem_cache.memory_pool import ReqToTokenPool
 from sglang.srt.mem_cache.radix_cache import RadixKey
 from sglang.srt.mem_cache.swa_memory_pool import SWATokenToKVPoolAllocator
-from sglang.srt.metrics.collector import (
-    DPCooperationInfo,
-    SchedulerMetricsCollector,
-    TimeStats,
-)
 from sglang.srt.model_executor.forward_batch_info import (
     CaptureHiddenMode,
     ForwardBatch,
@@ -100,6 +91,118 @@ INIT_INCREMENTAL_DETOKENIZATION_OFFSET = 5
 
 
 logger = logging.getLogger(__name__)
+
+SGLANG_TEST_REQUEST_TIME_STATS = False  # Disabled - was from metrics env var
+
+
+@dataclasses.dataclass
+class TimeStats:
+    """Store the timestamps for each stage of a request."""
+
+    disagg_mode: DisaggregationMode = DisaggregationMode.NULL
+    lb_entry_time: float = 0.0
+    wait_queue_entry_time: float = 0.0
+    forward_entry_time: float = 0.0
+    completion_time: float = 0.0
+    prefill_bootstrap_queue_entry_time: float = 0.0
+    prefill_transfer_queue_entry_time: float = 0.0
+    decode_prealloc_queue_entry_time: float = 0.0
+    decode_transfer_queue_entry_time: float = 0.0
+    bootstrap_duration: float = 0.0
+    alloc_waiting_duration: float = 0.0
+    prefill_start_time_host: float = 0.0
+    prefill_end_time_host: float = 0.0
+    transfer_speed_gb_s: float = 0.0
+    transfer_total_mb: float = 0.0
+    prefill_finished_ts: float = 0.0
+
+    def get_queueing_time(self) -> float:
+        return self.forward_entry_time - self.wait_queue_entry_time
+
+    def get_prefill_launch_delay(self) -> Optional[float]:
+        if self.prefill_start_time_host > 0.0:
+            return self.prefill_start_time_host - self.forward_entry_time
+        return None
+
+    def get_prefill_launch_latency(self) -> Optional[float]:
+        if self.prefill_start_time_host > 0.0 and self.prefill_end_time_host > 0.0:
+            return self.prefill_end_time_host - self.prefill_start_time_host
+        return None
+
+    def get_prefill_finished_ts(self) -> Optional[float]:
+        if self.prefill_finished_ts > 0.0:
+            return self.prefill_finished_ts
+        return None
+
+    def convert_to_duration(self) -> str:
+        if self.disagg_mode == DisaggregationMode.NULL:
+            queue_duration = self.forward_entry_time - self.wait_queue_entry_time
+            forward_duration = self.completion_time - self.forward_entry_time
+            return f"queue_duration={self.format_duration(queue_duration)}, forward_duration={self.format_duration(forward_duration)}, start_time={self.wait_queue_entry_time:.3f}"
+        elif self.disagg_mode == DisaggregationMode.PREFILL:
+            bootstrap_duration = self.wait_queue_entry_time - self.prefill_bootstrap_queue_entry_time
+            queue_duration = self.forward_entry_time - self.wait_queue_entry_time
+            forward_duration = self.completion_time - self.forward_entry_time
+            other = max(0.0, bootstrap_duration - (self.alloc_waiting_duration + self.bootstrap_duration))
+            return (
+                f"bootstrap_queue_duration({self.format_duration(bootstrap_duration)}) "
+                f"= alloc_wait({self.format_duration(self.alloc_waiting_duration)}) "
+                f"+ bootstrap({self.format_duration(self.bootstrap_duration)}) "
+                f"+ other({self.format_duration(other)}); "
+                f"queue_duration={self.format_duration(queue_duration)}, "
+                f"forward_duration={self.format_duration(forward_duration)}, "
+                f"start={self.prefill_bootstrap_queue_entry_time:.3f}, "
+                f"transfer_speed={self.transfer_speed_gb_s:.2f}GB/s, "
+                f"transfer_total={self.transfer_total_mb:.2f}MB"
+            )
+        elif self.disagg_mode == DisaggregationMode.DECODE:
+            prealloc_duration = self.decode_transfer_queue_entry_time - self.decode_prealloc_queue_entry_time
+            transfer_duration = self.wait_queue_entry_time - self.decode_transfer_queue_entry_time
+            queue_duration = self.forward_entry_time - self.wait_queue_entry_time
+            forward_duration = self.completion_time - self.forward_entry_time
+            other = max(0.0, prealloc_duration - (self.alloc_waiting_duration + self.bootstrap_duration))
+            return (
+                f"prealloc_queue_duration({self.format_duration(prealloc_duration)}) "
+                f"= alloc_wait({self.format_duration(self.alloc_waiting_duration)}) "
+                f"+ bootstrap({self.format_duration(self.bootstrap_duration)}) "
+                f"+ other({self.format_duration(other)}); "
+                f"transfer_duration={self.format_duration(transfer_duration)}; "
+                f"queue_duration={self.format_duration(queue_duration)}, "
+                f"forward_duration={self.format_duration(forward_duration)}, "
+                f"start={self.decode_prealloc_queue_entry_time:.3f}"
+            )
+        else:
+            return "Unknown Time Stats"
+
+    def format_duration(self, duration: float) -> str:
+        return f"{duration * 1e3:.2f}ms"
+
+    def disagg_mode_str(self) -> str:
+        if self.disagg_mode == DisaggregationMode.NULL:
+            return "unified"
+        elif self.disagg_mode == DisaggregationMode.DECODE:
+            return "decode"
+        elif self.disagg_mode == DisaggregationMode.PREFILL:
+            return "prefill"
+        else:
+            return "unknown"
+
+
+@dataclasses.dataclass
+class DPCooperationInfo:
+    """Data parallel cooperation info for metrics."""
+    num_prefill_ranks: int = 0
+
+    @staticmethod
+    def create(forward_modes: List[int]) -> "DPCooperationInfo":
+        # ForwardMode.EXTEND.value == 1
+        EXTEND_VALUE = 1
+        return DPCooperationInfo(
+            num_prefill_ranks=sum(1 for mode in forward_modes if mode == EXTEND_VALUE),
+        )
+
+    def to_labels(self):
+        return dataclasses.asdict(self)
 
 
 class BaseFinishReason:
@@ -506,7 +609,7 @@ class Req:
         token_ids_logprob: List[int] = None,
         stream: bool = False,
         origin_input_ids_unpadded: Optional[Tuple[int]] = None,
-        lora_id: Optional[str] = None,
+        # LoRA removed in DeepSeek-only build
         input_embeds: Optional[List[List[float]]] = None,
         token_type_ids: List[int] = None,
         session_id: Optional[str] = None,
@@ -522,7 +625,7 @@ class Req:
         data_parallel_rank: Optional[int] = None,
         vocab_size: Optional[int] = None,
         priority: Optional[int] = None,
-        metrics_collector: Optional[SchedulerMetricsCollector] = None,
+        metrics_collector=None,
         extra_key: Optional[str] = None,
         routing_key: Optional[str] = None,
         dimensions: Optional[int] = None,
@@ -577,26 +680,13 @@ class Req:
         self.return_hidden_states = return_hidden_states
 
         # extra key for classifying the request (e.g. cache_salt)
-        if lora_id is not None:
-            extra_key = (
-                extra_key or ""
-            ) + lora_id  # lora_id is concatenated to the extra key
+        # LoRA removed in DeepSeek-only build
 
         self.extra_key = extra_key
-        self.lora_id = lora_id
         self.routing_key = routing_key
 
         # Memory pool info
         self.req_pool_idx: Optional[int] = None
-        self.mamba_pool_idx: Optional[torch.Tensor] = None  # shape (1)
-        self.mamba_ping_pong_track_buffer: Optional[torch.Tensor] = None  # shape (2)
-        self.mamba_next_track_idx: Optional[int] = None  # 0 or 1
-        self.mamba_last_track_seqlen: Optional[int] = (
-            None  # seq len of the last cached mamba state
-        )
-        # the branching point seqlen to track mamba state. If set, given by prefix match,
-        # it will be the tracked seqlen in the ping pong buffer for the right prefill pass.
-        self.mamba_branching_seqlen: Optional[int] = None
 
         # Check finish
         self.tokenizer = None
@@ -818,14 +908,8 @@ class Req:
         return self.kv_committed_len, self.kv_allocated_len
 
     def add_latency(self, stage: RequestStage):
-        if self.metrics_collector is None:
-            return
-
-        now = time.monotonic()
-        self.metrics_collector.observe_per_stage_req_latency(
-            stage.value, now - self.last_tic
-        )
-        self.last_tic = now
+        # Metrics disabled
+        pass
 
     def extend_image_inputs(self, image_inputs):
         if self.multimodal_inputs is None:
@@ -868,24 +952,17 @@ class Req:
         if tree_cache is not None:
             match_result = tree_cache.match_prefix(
                 key=RadixKey(token_ids=token_ids, extra_key=self.extra_key),
-                **(
-                    {"req": self, "cow_mamba": True}
-                    if isinstance(tree_cache, MambaRadixCache)
-                    else {}
-                ),
             )
             (
                 self.prefix_indices,
                 self.last_node,
                 self.last_host_node,
                 self.host_hit_length,
-                self.mamba_branching_seqlen,
             ) = (
                 match_result.device_indices,
                 match_result.last_device_node,
                 match_result.last_host_node,
                 match_result.host_hit_length,
-                match_result.mamba_branching_seqlen,
             )
             self.cache_protected_len = len(self.prefix_indices)
 
@@ -1085,11 +1162,6 @@ class Req:
         self.temp_input_top_logprobs_idx = None
         self.extend_logprob_start_len = 0
         self.is_chunked = 0
-        self.mamba_pool_idx = None
-        self.mamba_ping_pong_track_buffer = None
-        self.mamba_next_track_idx = None
-        self.mamba_last_track_seqlen = None
-        self.mamba_branching_seqlen = None
         self.already_computed = 0
         self.kv_allocated_len = 0
         self.kv_committed_len = 0
@@ -1198,11 +1270,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     # The output locations of the KV cache
     out_cache_loc: torch.Tensor = None  # shape: [b], int64
     output_ids: torch.Tensor = None  # shape: [b], int64
-
-    # For hybrid GDN prefix cache
-    mamba_track_indices: torch.Tensor = None  # shape: [b], int64
-    mamba_track_mask: torch.Tensor = None  # shape: [b], bool
-    mamba_track_seqlens: torch.Tensor = None  # shape: [b], int64
 
     # For multimodal inputs
     multimodal_inputs: Optional[List] = None
@@ -1471,9 +1538,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         input_embeds = []
         extend_input_logprob_token_ids = []
         multimodal_inputs = []
-        mamba_track_mask_cpu = []
-        mamba_track_indices_cpu = []
-        mamba_track_seqlens_cpu = []
 
         for i, (req, seq_len, pre_len) in enumerate(zip(reqs, seq_lens, prefix_lens)):
             req.req_pool_idx = req_pool_indices[i]
@@ -1498,14 +1562,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
                 req.cached_tokens += pre_len - req.already_computed
                 req.already_computed = seq_len
             req.is_retracted = False
-
-            if get_global_server_args().enable_mamba_extra_buffer():
-                self._mamba_radix_cache_v2_req_prepare_for_extend(
-                    req,
-                    mamba_track_mask_cpu,
-                    mamba_track_indices_cpu,
-                    mamba_track_seqlens_cpu,
-                )
 
             if self.return_logprob:
                 # Find input logprob token ids.
@@ -1593,23 +1649,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         self.extend_logprob_start_lens = [r.extend_logprob_start_len for r in reqs]
         self.extend_input_logprob_token_ids = extend_input_logprob_token_ids
 
-        if get_global_server_args().enable_mamba_extra_buffer():
-            self.mamba_track_indices = torch.tensor(
-                mamba_track_indices_cpu,
-                dtype=torch.int64,
-                device=self.device,
-            )
-            self.mamba_track_mask = torch.tensor(
-                mamba_track_mask_cpu,
-                dtype=torch.bool,
-                device=self.device,
-            )
-            self.mamba_track_seqlens = torch.tensor(
-                mamba_track_seqlens_cpu,
-                dtype=torch.int64,
-                device=self.device,
-            )
-
         if self.model_config.is_encoder_decoder:
             self.prepare_encoder_info_extend(input_ids, seq_lens)
 
@@ -1618,86 +1657,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             self,
             self.model_config.vocab_size,
         )
-
-    def _mamba_radix_cache_v2_req_prepare_for_extend(
-        self,
-        req: Req,
-        mamba_track_mask_cpu: List[bool],
-        mamba_track_indices_cpu: List[int],
-        mamba_track_seqlens_cpu: List[int],
-    ):
-        def _force_track_h(i: int) -> int:
-            assert i % FLA_CHUNK_SIZE == 0
-            # There are 3 cases for mamba_track_seqlen passed to mamba_track_seqlens_cpu:
-            # 1) aligned with FLA_CHUNK_SIZE-> retrieve from last_recurrent_state
-            #    a) is the last position -> retrieve from last_recurrent_state
-            #    b) is NOT the last position -> retrieve from h
-            # 2) unaligned with FLA_CHUNK_SIZE -> retrieve from h
-            # Currently, the math calculation only supports case 1a and 2. So for 1b, we need to add 1
-            # to force the math calculation to retrieve the correct mamba state from h.
-            return i + 1
-
-        mamba_cache_chunk_size = get_global_server_args().mamba_cache_chunk_size
-        mask = req.extend_input_len >= mamba_cache_chunk_size
-        mamba_track_mask_cpu.append(mask)
-        mamba_track_indices_cpu.append(
-            req.mamba_ping_pong_track_buffer[req.mamba_next_track_idx].item()
-        )
-        mamba_track_seqlen = -1
-        if mask:
-            # mamba_track_seqlen is used to calculate the indices to track in
-            # hybrid_linear_attn_backend's _init_track_ssm_indices. Due to the
-            # fact that the ssm state between aligned and non-aligned are retrieved differently,
-            # if 1) last pos and 2) is aligned, then retrieved from the last_recurrent_state,
-            # otherwise retrieved from h (i.e. unaligned).
-            # We need to pass the non-aligned seqlen to the calculation. Even though
-            # we pass in mamba_track_seqlen, the actual tracked seqlen is mamba_last_track_seqlen.
-            mamba_track_seqlen = len(req.prefix_indices) + req.extend_input_len
-
-            # mamba_track_seqlen_aligned/mamba_last_track_seqlen is actual tracked seqlen. Used to pass to
-            # mamba radix cache to track which seqlen this mamba state should store at.
-            mamba_track_seqlen_aligned = (
-                len(req.prefix_indices)
-                + (req.extend_input_len // mamba_cache_chunk_size)
-                * mamba_cache_chunk_size
-            )
-
-            # mamba_track_fla_chunk_aligned is the aligned seqlen based on FLA_CHUNK_SIZE
-            # If mamba_track_fla_chunk_aligned != mamba_track_seqlen_aligned, which can be true when
-            # page_size > FLA_CHUNK_SIZE, we need to force the math calculation to retrieve the correct mamba state from h
-            # by _force_track_h()
-            mamba_track_fla_chunk_aligned = (
-                len(req.prefix_indices)
-                + (req.extend_input_len // FLA_CHUNK_SIZE) * FLA_CHUNK_SIZE
-            )
-            if mamba_track_fla_chunk_aligned != mamba_track_seqlen_aligned:
-                # We want to track mamba_track_seqlen_aligned, and it's not the last position,
-                # so we need to add 1 to the seqlen to retrieve the correct mamba state from h.
-                mamba_track_seqlen = _force_track_h(mamba_track_seqlen_aligned)
-
-            req.mamba_next_track_idx = (
-                self.req_to_token_pool.get_mamba_ping_pong_other_idx(
-                    req.mamba_next_track_idx
-                )
-            )
-            if req.mamba_branching_seqlen is not None:
-                # track branching point in this forward if the branching point
-                # is within the current extend batch.
-                branching_seqlen_aligned_mask = (
-                    req.mamba_branching_seqlen - len(req.prefix_indices)
-                ) % mamba_cache_chunk_size == 0
-                if (
-                    req.mamba_branching_seqlen > len(req.prefix_indices)
-                    and req.mamba_branching_seqlen < mamba_track_seqlen
-                    and branching_seqlen_aligned_mask
-                ):
-                    # We want to track mamba_track_seqlen_aligned, and it's not the last position,
-                    # so we need to add 1 to the seqlen to retrieve the correct mamba state from h.
-                    # See _force_track_h() for more details.
-                    mamba_track_seqlen = _force_track_h(req.mamba_branching_seqlen)
-                    mamba_track_seqlen_aligned = req.mamba_branching_seqlen
-            req.mamba_last_track_seqlen = mamba_track_seqlen_aligned
-        mamba_track_seqlens_cpu.append(mamba_track_seqlen)
 
     def prepare_for_split_prefill(self):
         self.prepare_for_extend()
@@ -1955,24 +1914,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             self.orig_seq_lens.add_(1)
         self.seq_lens_sum += bs
 
-        if get_global_server_args().enable_mamba_extra_buffer():
-            self.mamba_track_indices = torch.tensor(
-                [
-                    req.mamba_ping_pong_track_buffer[req.mamba_next_track_idx]
-                    for req in self.reqs
-                ],
-                dtype=torch.int64,
-                device=self.device,
-            )
-            self.mamba_track_mask = torch.tensor(
-                [
-                    sl % get_global_server_args().mamba_track_interval == 0
-                    for sl in self.seq_lens_cpu
-                ],
-                dtype=torch.bool,
-                device=self.device,
-            )
-
     def maybe_wait_verify_done(self):
         if self.is_spec_v2:
             draft_input: EagleDraftInput = self.spec_info
@@ -2032,9 +1973,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         if self.output_ids is not None:
             self.output_ids = self.output_ids[keep_indices_device]
 
-        self.mamba_track_indices = None
-        self.mamba_track_mask = None
-        self.mamba_track_seqlens = None
         self.return_logprob = any(req.return_logprob for req in self.reqs)
         if self.return_logprob:
             self.top_logprobs_nums = [self.top_logprobs_nums[i] for i in keep_indices]
@@ -2082,9 +2020,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         self.seq_lens_sum += other.seq_lens_sum
         if self.output_ids is not None:
             self.output_ids = torch.cat([self.output_ids, other.output_ids])
-        self.mamba_track_indices = None
-        self.mamba_track_mask = None
-        self.mamba_track_seqlens = None
         if self.return_logprob and other.return_logprob:
             self.top_logprobs_nums.extend(other.top_logprobs_nums)
             self.token_ids_logprobs.extend(other.token_ids_logprobs)
@@ -2153,7 +2088,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             encoder_lens=self.encoder_lens,
             encoder_lens_cpu=self.encoder_lens_cpu,
             encoder_out_cache_loc=self.encoder_out_cache_loc,
-            lora_ids=[req.lora_id for req in self.reqs],
+            # LoRA removed in DeepSeek-only build
             sampling_info=self.sampling_info,
             input_embeds=self.input_embeds,
             token_type_ids=self.token_type_ids,
@@ -2178,9 +2113,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             dllm_config=self.dllm_config,
             reqs=self.reqs,
             has_grammar=self.has_grammar,
-            mamba_track_indices=self.mamba_track_indices,
-            mamba_track_mask=self.mamba_track_mask,
-            mamba_track_seqlens=self.mamba_track_seqlens,
         )
 
     def copy(self):
@@ -2202,9 +2134,6 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             is_prefill_only=self.is_prefill_only,
             seq_lens_cpu=self.seq_lens_cpu,
             enable_overlap=self.enable_overlap,
-            mamba_track_indices=self.mamba_track_indices,
-            mamba_track_mask=self.mamba_track_mask,
-            mamba_track_seqlens=self.mamba_track_seqlens,
             dp_cooperation_info=self.dp_cooperation_info,
         )
 
@@ -2269,8 +2198,7 @@ class ModelWorkerBatch:
     encoder_lens_cpu: Optional[List[int]]
     encoder_out_cache_loc: Optional[torch.Tensor]
 
-    # For LoRA
-    lora_ids: Optional[List[str]]
+    # LoRA removed in DeepSeek-only build
 
     # Sampling info
     sampling_info: SamplingBatchInfo
@@ -2310,8 +2238,3 @@ class ModelWorkerBatch:
 
     # For hidden states before normal
     return_hidden_states_before_norm: bool = False
-
-    # For mamba state tracking
-    mamba_track_indices: Optional[torch.Tensor] = None  # shape: [b], int64
-    mamba_track_mask: Optional[torch.Tensor] = None  # shape: [b], bool
-    mamba_track_seqlens: Optional[torch.Tensor] = None  # shape: [b], int64

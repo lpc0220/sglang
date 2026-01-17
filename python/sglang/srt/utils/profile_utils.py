@@ -184,8 +184,6 @@ class _ProfilerBase(ABC):
             inners.append(_ProfilerMemory(**kwargs))
         if "CUDA_PROFILER" in activities:
             inners.append(_ProfilerCudart(**kwargs))
-        if "RPD" in activities:  # for ROCM
-            inners.append(_ProfilerRPD(**kwargs))
 
         return _ProfilerList(inners)
 
@@ -250,7 +248,7 @@ class _ProfilerTorch(_ProfilerConcreteBase):
             record_shapes=(
                 self.record_shapes if self.record_shapes is not None else False
             ),
-            on_trace_ready=None,  # NPU removed, CUDA-only
+            on_trace_ready=None,
         )
         self.torch_profiler.start()
 
@@ -311,46 +309,3 @@ class _ProfilerCudart(_ProfilerConcreteBase):
         if self.first_rank_in_node:
             logger.info(f"Call cudaProfilerStop")
             torch.cuda.cudart().cudaProfilerStop()
-
-
-class _ProfilerRPD(_ProfilerConcreteBase):
-    def start(self):
-        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-
-        from rpdTracerControl import rpdTracerControl
-
-        rpdTracerControl.skipCreate()
-
-        self.rpd_profile_path = os.path.join(
-            self.output_dir,
-            "rpd-" + str(time.time()) + f"-TP-{self.tp_rank}" + ".trace.json.gz")
-
-        if self.tp_rank == 0:
-            import sqlite3
-
-            from rocpd.schema import RocpdSchema
-
-            if os.path.exists("trace.rpd"):
-                os.unlink("trace.rpd")
-            schema = RocpdSchema()
-            connection = sqlite3.connect("trace.rpd")
-            schema.writeSchema(connection)
-            connection.commit()
-            del connection
-        torch.distributed.barrier(self.cpu_group)
-
-        self.rpd_profiler = rpdTracerControl()
-        self.rpd_profiler.setPythonTrace(True)
-        self.rpd_profiler.start()
-        self.rpd_profiler.rangePush("", "rpd profile range", "")
-
-    def stop(self):
-        self.rpd_profiler.rangePop()
-        self.rpd_profiler.stop()
-        self.rpd_profiler.flush()
-
-        torch.distributed.barrier(self.cpu_group)
-        if self.tp_rank == 0:
-            from sglang.srt.utils.rpd_utils import rpd_to_chrome_trace
-
-            rpd_to_chrome_trace("trace.rpd", self.rpd_profile_path)

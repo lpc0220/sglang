@@ -40,12 +40,7 @@ from sglang.srt.layers.quantization.modelopt_quant import (
     ModelOptFp4Config,
     ModelOptFp8Config,
 )
-from sglang.srt.model_loader.ci_weight_validation import (
-    ci_download_with_validation_and_retry,
-    ci_validate_and_cleanup_local_snapshot,
-)
 from sglang.srt.utils import find_local_repo_dir, log_info_on_rank0, print_warning_once
-from sglang.utils import is_in_ci
 
 try:
     from fastsafetensors import SafeTensorsFileLoader, SingleGroup
@@ -173,10 +168,6 @@ def get_quant_config(
 ) -> QuantizationConfig:
     quant_cls = get_quantization_config(model_config.quantization)
 
-    # GGUF doesn't have config file
-    if model_config.quantization == "gguf":
-        return quant_cls.from_config({})
-
     # Read the quantization config from the HF model config, if available.
     hf_quant_config = getattr(model_config.hf_config, "quantization_config", None)
     # some vision model may keep quantization_config in their text_config
@@ -255,13 +246,10 @@ def get_quant_config(
         ):
             quant_algo = config["quantization"]["quant_algo"]
             if quant_algo is None:
-                # (yizhang2077) workaround for nvidia/Llama-4-Maverick-17B-128E-Eagle3
-                if model_config.hf_config.architectures[0] != "LlamaForCausalLMEagle3":
-                    raise ValueError(
-                        f"Invalid quant_config, quantization method: {model_config.quantization},"
-                        f"hf architectures: {model_config.hf_config.architectures[0]}. "
-                    )
-                return None
+                raise ValueError(
+                    f"Invalid quant_config, quantization method: {model_config.quantization},"
+                    f"hf architectures: {model_config.hf_config.architectures[0]}. "
+                )
             elif quant_algo == "FP8" or model_config.quantization == "modelopt_fp8":
                 return ModelOptFp8Config.from_config(config)
             elif "FP4" in quant_algo:
@@ -410,15 +398,6 @@ def _find_local_hf_snapshot_dir_unlocked(
             )
             return None  # Triggers snapshot_download() which handles partial downloads
 
-    # Only perform cache validation and cleanup in CI to avoid
-    # unnecessary overhead for regular users
-    if is_in_ci() and local_weight_files:
-        is_valid = ci_validate_and_cleanup_local_snapshot(
-            model_name_or_path, found_local_snapshot_dir, local_weight_files
-        )
-        if not is_valid:
-            return None
-
     if len(local_weight_files) > 0:
         log_info_on_rank0(
             logger,
@@ -497,28 +476,16 @@ def download_weights_from_hf(
 
         log_info_on_rank0(logger, f"Using model weights format {allow_patterns}")
 
-        if not is_in_ci():
-            # Simple download without validation for non-CI environments
-            hf_folder = snapshot_download(
-                model_name_or_path,
-                allow_patterns=allow_patterns,
-                ignore_patterns=ignore_patterns,
-                cache_dir=cache_dir,
-                tqdm_class=DisabledTqdm,
-                revision=revision,
-                local_files_only=huggingface_hub.constants.HF_HUB_OFFLINE,
-            )
-            return hf_folder
-        else:
-            # Only perform validation and retry in CI to avoid overhead for regular users
-            return ci_download_with_validation_and_retry(
-                model_name_or_path=model_name_or_path,
-                allow_patterns=allow_patterns,
-                ignore_patterns=ignore_patterns,
-                cache_dir=cache_dir,
-                revision=revision,
-                max_retries=max_retries,
-            )
+        hf_folder = snapshot_download(
+            model_name_or_path,
+            allow_patterns=allow_patterns,
+            ignore_patterns=ignore_patterns,
+            cache_dir=cache_dir,
+            tqdm_class=DisabledTqdm,
+            revision=revision,
+            local_files_only=huggingface_hub.constants.HF_HUB_OFFLINE,
+        )
+        return hf_folder
 
 
 def download_safetensors_index_file_from_hf(
@@ -888,52 +855,6 @@ def multi_thread_pt_weights_iterator(
         for future in futures_iter:
             state = future.result()
             yield from state.items()
-
-
-def get_gguf_extra_tensor_names(
-    gguf_file: str, gguf_to_hf_name_map: Dict[str, str]
-) -> List[str]:
-    import gguf
-
-    reader = gguf.GGUFReader(gguf_file)
-    expected_gguf_keys = set(gguf_to_hf_name_map.keys())
-    exact_gguf_keys = set([tensor.name for tensor in reader.tensors])
-    extra_keys = expected_gguf_keys - exact_gguf_keys
-    return [gguf_to_hf_name_map[key] for key in extra_keys]
-
-
-def gguf_quant_weights_iterator(
-    gguf_file: str, gguf_to_hf_name_map: Dict[str, str]
-) -> Generator[Tuple[str, torch.Tensor], None, None]:
-    """
-    Iterate over the quant weights in the model gguf files and convert
-    them to torch tensors
-    """
-
-    import gguf
-
-    reader = gguf.GGUFReader(gguf_file)
-
-    for tensor in reader.tensors:
-        if tensor.name in gguf_to_hf_name_map:
-            weight_type = tensor.tensor_type
-            name = gguf_to_hf_name_map[tensor.name]
-
-            if weight_type.name != "F32":
-                weight_type_name = name.replace("weight", "qweight_type")
-                weight_type = torch.tensor(weight_type)
-                yield weight_type_name, weight_type
-
-    for tensor in reader.tensors:
-        if tensor.name in gguf_to_hf_name_map:
-            weight = tensor.data
-            weight_type = tensor.tensor_type
-            name = gguf_to_hf_name_map[tensor.name]
-
-            if weight_type.name != "F32":
-                name = name.replace("weight", "qweight")
-            param = torch.tensor(weight)
-            yield name, param
 
 
 def convert_pyslice_to_tensor(x: Any) -> torch.Tensor:

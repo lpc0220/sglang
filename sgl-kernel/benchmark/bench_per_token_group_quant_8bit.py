@@ -15,7 +15,6 @@ from sglang.srt.layers.quantization.fp8_kernel import (
     per_token_group_quant_8bit as triton_per_token_group_quant_8bit,
 )
 from sglang.srt.layers.quantization.fp8_kernel import sglang_per_token_group_quant_8bit
-from sglang.srt.utils import is_hip
 from sglang.srt.utils.bench_utils import bench_kineto
 
 # CI environment detection
@@ -24,8 +23,8 @@ IS_CI = (
     or os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
 )
 
-_is_hip = is_hip()
-fp8_type_ = torch.float8_e4m3fnuz if _is_hip else torch.float8_e4m3fn
+# NVIDIA CUDA only - use standard FP8 type
+fp8_type_ = torch.float8_e4m3fn
 
 
 mode_concentrated = IS_CI or (os.environ.get("SGLANG_BENCH_MODE", "") == "concentrated")

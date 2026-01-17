@@ -392,7 +392,6 @@ class HiCacheController:
             self.tp_size = get_tensor_model_parallel_world_size()
             self.dp_rank = 0
 
-        # Currently, NPUMLATokenToKVPool is the subclass of MLATokenToKVPool.
         is_mla_backend = isinstance(self.mem_pool_device, MLATokenToKVPool)
 
         return HiCacheStorageConfig(

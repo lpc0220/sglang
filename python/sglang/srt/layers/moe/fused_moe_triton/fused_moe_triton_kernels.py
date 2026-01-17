@@ -19,7 +19,6 @@ from sglang.srt.layers.quantization.int8_kernel import (
     sglang_per_token_group_quant_int8,
 )
 from sglang.srt.utils import (
-    cpu_has_amx_support,
     get_bool_env_var,
     get_device_name,
     is_cuda,
