@@ -53,7 +53,7 @@ from sglang.srt.entrypoints.openai.protocol import (
     ResponsesResponse,
     UsageInfo,
 )
-from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat, __ReasoningParser
+from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat, _ReasoningParser
 from sglang.srt.entrypoints.openai.tool_server import MCPToolServer, ToolServer
 from sglang.srt.managers.io_struct import GenerateReqInput
 from sglang.srt.utils import random_uuid
