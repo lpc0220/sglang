@@ -1,8 +1,7 @@
 """Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/parameter.py"""
 
-import logging
 from fractions import Fraction
-from typing import Callable, Optional, Union
+from typing import Callable, Union
 
 import torch
 from torch.nn import Parameter
@@ -20,8 +19,6 @@ __all__ = [
     "PackedColumnParameter",
     "RowvLLMParameter",
 ]
-
-logger = logging.getLogger(__name__)
 
 
 class BasevLLMParameter(Parameter):

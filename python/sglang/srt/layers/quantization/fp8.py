@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import torch
-import torch.nn.functional as F
 from torch.nn import Module
 from torch.nn.parameter import Parameter
 
@@ -67,7 +66,6 @@ from sglang.srt.utils import (
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher import CombineInput, DispatchOutput
-    from sglang.srt.layers.moe.topk import TopKOutput
     from sglang.srt.layers.quantization.w4afp8 import W4AFp8Config
 
 _is_cuda = is_cuda()

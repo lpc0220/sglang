@@ -1,12 +1,7 @@
 # Adapted from https://raw.githubusercontent.com/vllm-project/vllm/v0.5.5/vllm/model_executor/layers/quantization/__init__.py
 from __future__ import annotations
 
-import builtins
-import inspect
-from typing import TYPE_CHECKING, Dict, Optional, Type
-
-import torch
-
+from typing import Dict, Type
 
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.quantization.blockwise_int8 import BlockInt8Config
@@ -23,12 +18,7 @@ from sglang.srt.layers.quantization.quark.quark import QuarkConfig
 from sglang.srt.layers.quantization.w4afp8 import W4AFp8Config
 from sglang.srt.layers.quantization.w8a8_fp8 import W8A8Fp8Config
 from sglang.srt.layers.quantization.w8a8_int8 import W8A8Int8Config
-from sglang.srt.utils import is_cuda, mxfp_supported
-
-_is_mxfp_supported = mxfp_supported()
-
-if TYPE_CHECKING:
-    from sglang.srt.layers.moe.topk import TopKOutput
+from sglang.srt.utils import is_cuda
 
 # Base quantization methods
 BASE_QUANTIZATION_METHODS: Dict[str, Type[QuantizationConfig]] = {
@@ -65,6 +55,3 @@ def get_quantization_config(quantization: str) -> Type[QuantizationConfig]:
         )
 
     return QUANTIZATION_METHODS[quantization]
-
-
-original_isinstance = builtins.isinstance
