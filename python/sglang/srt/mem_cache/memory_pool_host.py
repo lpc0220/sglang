@@ -18,6 +18,7 @@ from sglang.jit_kernel.hicache import (
 from sglang.srt.mem_cache.memory_pool import KVCache, MHATokenToKVPool, MLATokenToKVPool
 from sglang.srt.utils import is_cuda
 
+logger = logging.getLogger(__name__)
 _is_cuda = is_cuda()
 
 # NVIDIA CUDA-only: Always import KV cache I/O kernels

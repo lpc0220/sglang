@@ -1,6 +1,5 @@
 """Launch the inference server."""
 
-import asyncio
 import os
 import sys
 

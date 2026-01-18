@@ -14,7 +14,6 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import torch
-from torch import nn
 
 from sglang.srt.environ import envs
 from sglang.srt.managers.schedule_batch import (
@@ -62,7 +61,7 @@ class MultiModalStaticCache:
         for h in hashes:
             combined ^= h
         return combined
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
+
 EVSEmbeddingResult = None  # Placeholder for type hints
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import flatten_nested_list, print_warning_once

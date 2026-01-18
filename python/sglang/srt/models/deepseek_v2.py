@@ -42,7 +42,6 @@ from sglang.srt.configs.model_config import (
     is_deepseek_nsa,
 )
 from sglang.srt.distributed import (
-    divide,
     get_moe_expert_parallel_world_size,
     get_pp_group,
     get_tensor_model_parallel_world_size,
@@ -109,7 +108,6 @@ from sglang.srt.layers.moe.utils import (
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.quantization.fp8 import Fp8Config
 from sglang.srt.layers.quantization.fp8_kernel import (
-    fp8_dtype,
     per_tensor_quant_mla_fp8,
     per_token_group_quant_mla_deep_gemm_masked_fp8,
 )

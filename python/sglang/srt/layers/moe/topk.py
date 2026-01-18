@@ -50,11 +50,9 @@ from sglang.srt.layers.moe import get_moe_runner_backend
 from sglang.srt.layers.moe.routed_experts_capturer import get_global_experts_capturer
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.utils import (
-    get_bool_env_var,
     get_compiler_backend,
     is_cuda,
 )
-from sglang.srt.utils.patch_torch import register_fake_if_exists
 
 if TYPE_CHECKING:
     from sglang.srt.layers.quantization import QuantizationConfig

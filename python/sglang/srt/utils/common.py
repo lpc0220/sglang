@@ -29,7 +29,6 @@ import logging
 import math
 import os
 import pickle
-import platform
 import random
 import re
 import resource
@@ -50,7 +49,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from importlib.metadata import PackageNotFoundError, version
-from importlib.util import find_spec
 from io import BytesIO
 from json import JSONDecodeError
 from multiprocessing.reduction import ForkingPickler

@@ -25,10 +25,8 @@ KVCache actually holds the physical kv cache.
 """
 
 import abc
-import dataclasses
 import logging
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
 import numpy as np

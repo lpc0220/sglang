@@ -14,17 +14,13 @@ import torch.nn.functional as F
 import triton.language as tl
 
 from sglang.srt.layers.moe.moe_runner import MoeRunnerConfig
-from sglang.srt.utils import (
-    get_bool_env_var,
-    is_cuda,
-)
+from sglang.srt.utils import is_cuda
 from sglang.srt.utils.custom_op import register_custom_op
 
 from .fused_moe_triton_config import get_config_dtype_str, try_get_optimal_moe_config
 from .fused_moe_triton_kernels import (
     act_and_mul_triton,
     invoke_fused_moe_kernel,
-    moe_sum_reduce_triton,
     support_tensor_descriptor,
 )
 from .moe_align_block_size import moe_align_block_size

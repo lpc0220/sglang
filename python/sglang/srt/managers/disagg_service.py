@@ -1,6 +1,5 @@
 """Start bootstrap/kv-store-related server"""
 
-import os
 from typing import Type
 
 from sglang.srt.disaggregation.base import BaseKVBootstrapServer

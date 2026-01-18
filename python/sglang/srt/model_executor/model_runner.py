@@ -22,7 +22,6 @@ import os
 import socket
 import threading
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -34,7 +33,7 @@ from torch import nn
 # from sglang.srt.configs import ...
 from sglang.srt.configs.device_config import DeviceConfig
 from sglang.srt.configs.load_config import LoadConfig, LoadFormat
-from sglang.srt.configs.model_config import AttentionArch, ModelConfig, ModelImpl
+from sglang.srt.configs.model_config import AttentionArch, ModelConfig
 from sglang.srt.constants import GPU_MEMORY_TYPE_WEIGHTS
 from sglang.srt.distributed import (
     get_pp_group,
@@ -131,9 +130,7 @@ from sglang.srt.utils.offloader import (
     create_offloader_from_server_args,
     get_offloader,
     set_offloader)
-from sglang.srt.utils.patch_torch import (
-    monkey_patch_torch_reductions,
-    register_sgl_tp_rank)
+from sglang.srt.utils.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.utils.torch_memory_saver_adapter import TorchMemorySaverAdapter
 from sglang.srt.utils.weight_checker import WeightChecker
 from sglang.srt.weight_sync.tensor_bucket import (

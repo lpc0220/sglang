@@ -27,7 +27,6 @@ from sglang.srt.layers import deep_gemm_wrapper
 from sglang.srt.utils import (
     ceil_align,
     get_bool_env_var,
-    get_device_core_count,
     get_device_name,
     is_cuda,
     log_info_on_rank0,

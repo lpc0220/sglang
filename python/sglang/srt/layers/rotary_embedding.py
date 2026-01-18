@@ -6,7 +6,7 @@ import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from sglang.srt.layers.utils import MultiPlatformOp
 from sglang.srt.server_args import get_global_server_args
