@@ -168,11 +168,10 @@ class MultiLayerEagleDraftWorker(BaseDraftWorker):
             self.draft_runner_list[i].model.set_embed_and_head(embed, head)
 
     def init_attention_backend(self):
-        # STUB: FlashAttentionBackend removed from DeepSeek-only build
-        # Multi-layer EAGLE speculative decoding requires FlashAttention which is not available
+        # STUB: Removed from DeepSeek-only build
+        # Multi-layer EAGLE speculative decoding requires attention backend not available in this build
         raise NotImplementedError(
-            "Multi-layer EAGLE speculative decoding is not implemented yet. "
-            "This DeepSeek-only build does not include FlashAttention backend. "
+            "Multi-layer EAGLE speculative decoding is not supported in this DeepSeek-only build. "
             "Please use a different speculative algorithm or disable speculative decoding."
         )
 

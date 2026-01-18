@@ -44,28 +44,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 WEIGHT_LOADER_V2_SUPPORTED = [
-    "CompressedTensorsLinearMethod",
-    "GPTQMarlinLinearMethod",
     "Fp8LinearMethod",
     "BlockInt8LinearMethod",
-    "MarlinLinearMethod",
     "QQQLinearMethod",
-    "GPTQMarlin24LinearMethod",
     "TPUInt8LinearMethod",
-    "GPTQLinearMethod",
     "FBGEMMFp8LinearMethod",
     "ModelOptFp8LinearMethod",
     "ModelOptFp4LinearMethod",
     "PetitNvFp4LinearMethod",
 ]
-
-
-def adjust_marlin_shard(param, shard_size, shard_offset):
-    marlin_tile_size = getattr(param, "marlin_tile_size", None)
-    if marlin_tile_size is None:
-        return shard_size, shard_offset
-
-    return shard_size * marlin_tile_size, shard_offset * marlin_tile_size
 
 
 def adjust_bitsandbytes_4bit_shard(
@@ -375,8 +362,6 @@ class ColumnParallelLinear(LinearBase):
                 use_presharded_weights=self.use_presharded_weights,
             )
         else:
-            # FIXME: This branch is needed to load deepseek v3 awq.
-            # However, we should fix this and avoid the branching here.
             # After QuantizedRL reload, params might still need tp_rank
             try:
                 param.load_column_parallel_weight(
@@ -512,10 +497,6 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
                 if packed_dim == output_dim:
                     shard_size = shard_size // param.pack_factor
                     shard_offset = shard_offset // param.pack_factor
-                    # Special case for Marlin.
-                    shard_size, shard_offset = adjust_marlin_shard(
-                        param, shard_size, shard_offset
-                    )
 
                 if use_bitsandbytes_4bit:
                     index = list(itertools.accumulate([0] + self.output_sizes))
@@ -545,10 +526,6 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
             if packed_dim == output_dim:
                 shard_size = shard_size // param.pack_factor
                 shard_offset = shard_offset // param.pack_factor
-                # Special case for Marlin.
-                shard_size, shard_offset = adjust_marlin_shard(
-                    param, shard_size, shard_offset
-                )
 
             use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
             if use_bitsandbytes_4bit:
@@ -968,11 +945,6 @@ class QKVParallelLinear(MergedColumnParallelLinear):
                     shard_size = shard_size // param.pack_factor
                     shard_offset = shard_offset // param.pack_factor
 
-                    # Special case for Marlin.
-                    shard_size, shard_offset = adjust_marlin_shard(
-                        param, shard_size, shard_offset
-                    )
-
                 if use_bitsandbytes_4bit:
                     orig_qkv_offsets = {
                         "q": (0, self.total_num_heads * self.head_size),
@@ -1024,11 +996,6 @@ class QKVParallelLinear(MergedColumnParallelLinear):
             if packed_dim == output_dim:
                 shard_size = shard_size // param.pack_factor
                 shard_offset = shard_offset // param.pack_factor
-
-                # Special case for Marlin.
-                shard_size, shard_offset = adjust_marlin_shard(
-                    param, shard_size, shard_offset
-                )
 
             use_bitsandbytes_4bit = getattr(param, "use_bitsandbytes_4bit", False)
             if use_bitsandbytes_4bit:

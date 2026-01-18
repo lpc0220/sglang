@@ -90,17 +90,17 @@ def monkey_patch_torch_compile():
 def register_fake_if_exists(op_name):
     """
     Decorator factory to conditionally register a fake for a custom op if it exists.
-    Parses op_name (e.g., 'sgl_kernel::gptq_gemm'), checks if the op exists via hasattr
+    Parses op_name (e.g., 'sgl_kernel::int8_scaled_mm'), checks if the op exists via hasattr
     on the namespace attribute of torch.ops. Registers the fake if present; otherwise,
     returns the function unchanged.
     Args:
-        op_name (str): Full operator name (e.g., 'sgl_kernel::gptq_gemm').
+        op_name (str): Full operator name (e.g., 'sgl_kernel::int8_scaled_mm').
     Returns:
         callable: Decorator for the fake function.
     Example:
-        @register_fake_if_exists('sgl_kernel::gptq_gemm')
-        def fake_gptq_gemm(a, b_q_weight, b_gptq_qzeros, b_gptq_scales, b_g_idx, use_shuffle, bit):
-            return a.new_empty((a.shape[0], b_q_weight.shape[-1]), dtype=a.dtype)
+        @register_fake_if_exists('sgl_kernel::int8_scaled_mm')
+        def fake_int8_scaled_mm(a, b, scales_a, scales_b, out_dtype, bias):
+            return a.new_empty((a.shape[0], b.shape[-1]), dtype=out_dtype)
     """
 
     def decorator(func):

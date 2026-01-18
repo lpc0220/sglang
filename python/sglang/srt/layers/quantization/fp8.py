@@ -41,7 +41,6 @@ from sglang.srt.layers.quantization.fp8_kernel import (
 )
 from sglang.srt.layers.quantization.fp8_utils import (
     apply_fp8_linear,
-    can_auto_enable_marlin_fp8,
     cutlass_fp8_supported,
     dispatch_w8a8_block_fp8_linear,
     input_to_float8,
@@ -49,10 +48,6 @@ from sglang.srt.layers.quantization.fp8_utils import (
     requant_weight_ue8m0_inplace,
 )
 from sglang.srt.layers.quantization.kv_cache import BaseKVCacheMethod
-from sglang.srt.layers.quantization.marlin_utils_fp8 import (
-    apply_fp8_marlin_linear,
-    prepare_fp8_layer_for_marlin,
-)
 from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
 from sglang.srt.layers.quantization.utils import (
     all_close_1d,
@@ -62,7 +57,6 @@ from sglang.srt.layers.quantization.utils import (
     requantize_with_max_scale,
 )
 from sglang.srt.utils import (
-    get_bool_env_var,
     is_cuda,
     is_sm90_supported,
     is_sm100_supported,
@@ -194,17 +188,7 @@ class Fp8LinearMethod(LinearMethodBase):
     def __init__(self, quant_config: Union[Fp8Config, W4AFp8Config]):
         self.quant_config = quant_config
         self.cutlass_fp8_supported = cutlass_fp8_supported()
-
-        # For GPUs that lack FP8 hardware support, we can leverage the Marlin
-        # kernel for fast weight-only FP8 quantization
-        self.use_marlin = False
-        if _is_cuda:
-            force_marlin = get_bool_env_var("SGLANG_FORCE_FP8_MARLIN")
-            auto_enable = can_auto_enable_marlin_fp8()
-            self.use_marlin = force_marlin or auto_enable
-
         self.block_quant = self.quant_config.weight_block_size is not None
-
         self.w8a8_block_fp8_linear = dispatch_w8a8_block_fp8_linear()
 
     def create_weights(
@@ -370,9 +354,9 @@ class Fp8LinearMethod(LinearMethodBase):
 
             # If checkpoint not serialized fp8, quantize the weights.
             if not self.quant_config.is_checkpoint_fp8_serialized:
-                if self.cutlass_fp8_supported or self.use_marlin:
+                if self.cutlass_fp8_supported:
                     # apply per-channel quantization default as
-                    # cutlass sgl-kernel and marlin only support per-channel scale
+                    # cutlass sgl-kernel only supports per-channel scale
                     qweight, weight_scale = per_token_group_quant_fp8(
                         layer.weight, layer.weight.shape[-1]
                     )
@@ -403,8 +387,8 @@ class Fp8LinearMethod(LinearMethodBase):
                         layer.input_scale.data, requires_grad=False
                     )
 
-                # cutlass sgl-kernel and marlin only support per-channel scale
-                if self.cutlass_fp8_supported or self.use_marlin:
+                # cutlass sgl-kernel only supports per-channel scale
+                if self.cutlass_fp8_supported:
                     weight = layer.weight
                     weight_scale = convert_to_channelwise(
                         layer.weight_scale, layer.logical_widths
@@ -447,30 +431,12 @@ class Fp8LinearMethod(LinearMethodBase):
                         layer.input_scale.max(), requires_grad=False
                     )
 
-        if self.use_marlin:
-            if self.block_quant:
-                layer.weight_block_size = self.quant_config.weight_block_size
-            prepare_fp8_layer_for_marlin(layer, not self.block_quant)
-            # Activations not quantized for marlin.
-            del layer.input_scale
-
     def apply(
         self,
         layer: torch.nn.Module,
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if self.use_marlin:
-            return apply_fp8_marlin_linear(
-                input=x,
-                weight=layer.weight,
-                weight_scale=layer.weight_scale,
-                workspace=layer.workspace,
-                size_n=layer.output_size_per_partition,
-                size_k=layer.input_size_per_partition,
-                bias=bias,
-            )
-
         if self.block_quant:
             if isinstance(x, tuple):
                 return self.w8a8_block_fp8_linear(

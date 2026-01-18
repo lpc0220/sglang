@@ -597,17 +597,7 @@ class FusedMoE(torch.nn.Module):
         if method.__class__.__name__ == "KTEPWrapperMethod":
             method = method.gpu_method
 
-        loaded_weight = (
-            loaded_weight.t().contiguous()
-            if (
-                method.__class__.__name__
-                in [
-                    "CompressedTensorsWNA16MarlinMoEMethod",
-                    "CompressedTensorsWNA16MoEMethod",
-                ]
-            )
-            else loaded_weight
-        )
+        # No weight transpose needed for DeepSeek-only build
 
         if shard_id not in ("w1", "w2", "w3"):
             raise ValueError(f"shard_id must be ['w1','w2','w3'] but got {shard_id}.")
@@ -629,7 +619,7 @@ class FusedMoE(torch.nn.Module):
         expert_data = param.data[expert_id]
 
         # is_transposed: if the dim to shard the weight
-        # should be flipped. Required by GPTQ, compressed-tensors
+        # should be flipped for certain quantization methods
         # should be whatever dimension intermediate_size is
         is_transposed = getattr(param, "is_transposed", False)
         shard_dim = SHARD_ID_TO_SHARDED_DIM[shard_id]
@@ -797,17 +787,7 @@ class FusedMoE(torch.nn.Module):
                 param.data[:, :dim1, :dim2].copy_(loaded_weight)
             return
 
-        # compressed-tensors checkpoints with packed weights are stored flipped
-        # TODO: check self.quant_method.quant_config.quant_format
-        # against known CompressionFormat enum values that have this quality
-        loaded_weight = (
-            loaded_weight.t().contiguous()
-            if (
-                self.quant_method.__class__.__name__
-                == "CompressedTensorsWNA16MoEMethod"
-            )
-            else loaded_weight
-        )
+        # No weight transpose needed for DeepSeek-only build
 
         if shard_id not in ("w13", "w2"):
             raise ValueError(f"shard_id must be ['w13','w2'] but got {shard_id}.")
@@ -822,7 +802,7 @@ class FusedMoE(torch.nn.Module):
         is_bias = expert_data.dim() == 2
 
         # is_transposed: if the dim to shard the weight
-        # should be flipped. Required by GPTQ, compressed-tensors
+        # should be flipped for certain quantization methods
         # should be whatever dimension intermediate_size is
         is_transposed = getattr(param, "is_transposed", False)
 

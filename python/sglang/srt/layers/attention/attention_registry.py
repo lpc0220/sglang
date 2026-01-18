@@ -86,13 +86,6 @@ def create_torch_native_backend(runner):
     return TorchNativeAttnBackend(runner)
 
 
-@register_attention_backend("flex_attention")
-def create_flex_attention_backend(runner):
-    from sglang.srt.layers.attention.torch_flex_backend import TorchFlexAttnBackend
-
-    return TorchFlexAttnBackend(runner)
-
-
 @register_attention_backend("cutlass_mla")
 def create_cutlass_mla_backend(runner):
     from sglang.srt.layers.attention.cutlass_mla_backend import CutlassMLABackend

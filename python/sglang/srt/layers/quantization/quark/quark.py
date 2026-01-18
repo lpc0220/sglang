@@ -367,7 +367,7 @@ class QuarkLinearMethod(LinearMethodBase):
         **extra_weight_attrs,
     ):
         """
-        Use the CompressedTensorsScheme associated with each layer to create
+        Use the quantization scheme associated with each layer to create
         the necessary parameters for the layer. See LinearMethodBase for param
         details
         """
@@ -389,7 +389,7 @@ class QuarkLinearMethod(LinearMethodBase):
         bias: Optional[torch.Tensor] = None,
     ):
         """
-        Use the output of create_weights and the CompressedTensorsScheme
+        Use the output of create_weights and the quantization scheme
         associated with the layer to apply the forward pass with the
         layer input.  See LinearMethodBase for param details
 

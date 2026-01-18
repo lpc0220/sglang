@@ -220,10 +220,7 @@ class XIELU(MultiPlatformOp):
 
 
 class ScaledActivation(nn.Module):
-    """An activation function with post-scale parameters.
-
-    This is used for some quantization methods like AWQ.
-    """
+    """An activation function with post-scale parameters."""
 
     def __init__(
         self,

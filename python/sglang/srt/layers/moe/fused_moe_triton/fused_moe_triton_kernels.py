@@ -86,7 +86,7 @@ def write_zeros_to_output(
 
 
 @triton.jit
-def fused_moe_kernel_gptq_awq(
+def fused_moe_kernel_int_quant(
     # Pointers to matrices
     a_ptr,
     b_ptr,
@@ -705,7 +705,7 @@ def invoke_fused_moe_kernel(
         assert B_scale is not None and B_scale.ndim == 3
         assert B_zp is None or B_zp.ndim == 3
         assert bias is None
-        fused_moe_kernel_gptq_awq[grid](
+        fused_moe_kernel_int_quant[grid](
             A,
             B,
             C,

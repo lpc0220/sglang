@@ -535,18 +535,12 @@ class ModelConfig:
         supported_quantization = [*QUANTIZATION_METHODS]
         optimized_quantization_methods = [
             "fp8",
-            "marlin",
             "modelopt_fp8",
             "modelopt_fp4",
-            "gptq_marlin_24",
-            "gptq_marlin",
             "fbgemm_fp8",
-            "compressed_tensors",
-            "compressed-tensors",
             "experts_int8",
             "w8a8_int8",
             "w8a8_fp8",
-            "moe_wna16",
             "qoq",
             "w4afp8",
             "petit_nvfp4",

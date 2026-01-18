@@ -40,16 +40,12 @@ from sgl_kernel.expert_specialization import (
 )
 from sgl_kernel.fused_moe import moe_wna16_marlin_gemm
 from sgl_kernel.gemm import (
-    awq_dequantize,
     bmm_fp8,
     cutlass_scaled_fp4_mm,
     dsv3_fused_a_gemm,
     dsv3_router_gemm,
     fp8_blockwise_scaled_mm,
     fp8_scaled_mm,
-    gptq_gemm,
-    gptq_marlin_gemm,
-    gptq_shuffle,
     int8_scaled_mm,
     qserve_w4a8_per_chn_gemm,
     qserve_w4a8_per_group_gemm,
@@ -76,11 +72,6 @@ from sgl_kernel.kvcacheio import (
     transfer_kv_all_layer_mla,
     transfer_kv_per_layer,
     transfer_kv_per_layer_mla,
-)
-from sgl_kernel.marlin import (
-    awq_marlin_moe_repack,
-    awq_marlin_repack,
-    gptq_marlin_repack,
 )
 from sgl_kernel.memory import set_kv_buffer_kernel, weak_ref_tensor
 from sgl_kernel.moe import (

@@ -5,12 +5,6 @@ from sgl_kernel.scalar_type import ScalarType
 from sgl_kernel.utils import _get_cache_buf
 
 
-def awq_dequantize(
-    qweight: torch.Tensor, scales: torch.Tensor, qzeros: torch.Tensor
-) -> torch.ByteTensor:
-    return torch.ops.sgl_kernel.awq_dequantize.default(qweight, scales, qzeros)
-
-
 def int8_scaled_mm(mat_a, mat_b, scales_a, scales_b, out_dtype, bias=None):
     return torch.ops.sgl_kernel.int8_scaled_mm.default(
         mat_a,
@@ -505,60 +499,3 @@ def scaled_fp4_experts_quant(
     return output, output_scales
 
 
-# GPTQ kernels
-def gptq_marlin_gemm(
-    a: torch.Tensor,
-    c: Optional[torch.Tensor],
-    b_q_weight: torch.Tensor,
-    b_scales: torch.Tensor,
-    global_scale: Optional[torch.Tensor],
-    b_zeros: Optional[torch.Tensor],
-    g_idx: Optional[torch.Tensor],
-    perm: Optional[torch.Tensor],
-    workspace: torch.Tensor,
-    b_q_type: ScalarType,
-    size_m: int,
-    size_n: int,
-    size_k: int,
-    is_k_full: bool = True,
-    use_atomic_add: bool = False,
-    use_fp32_reduce: bool = False,
-    is_zp_float: bool = False,
-) -> torch.Tensor:
-    return torch.ops.sgl_kernel.gptq_marlin_gemm(
-        a,
-        c,
-        b_q_weight,
-        b_scales,
-        global_scale,
-        b_zeros,
-        g_idx,
-        perm,
-        workspace,
-        b_q_type.id,
-        size_m,
-        size_n,
-        size_k,
-        is_k_full,
-        use_atomic_add,
-        use_fp32_reduce,
-        is_zp_float,
-    )
-
-
-def gptq_gemm(
-    a: torch.Tensor,
-    b_q_weight: torch.Tensor,
-    b_gptq_qzeros: torch.Tensor,
-    b_gptq_scales: torch.Tensor,
-    b_g_idx: torch.Tensor,
-    use_shuffle: bool,
-    bit: int,
-) -> torch.Tensor:
-    return torch.ops.sgl_kernel.gptq_gemm(
-        a, b_q_weight, b_gptq_qzeros, b_gptq_scales, b_g_idx, use_shuffle, bit
-    )
-
-
-def gptq_shuffle(q_weight: torch.Tensor, q_perm: torch.Tensor, bit: int) -> None:
-    torch.torch.ops.sgl_kernel.gptq_shuffle(q_weight, q_perm, bit)

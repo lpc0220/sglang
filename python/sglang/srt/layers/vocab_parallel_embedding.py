@@ -394,7 +394,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             param.materialize(tuple(shape), dtype=loaded_weight.dtype)
 
         # If parameter does not have output dim, then it should
-        # be copied onto all gpus (e.g. g_idx for act_order gptq).
+        # be copied onto all gpus (e.g. g_idx for activation ordering).
         if output_dim is None:
             assert param.data.shape == loaded_weight.shape
             param.data.copy_(loaded_weight)

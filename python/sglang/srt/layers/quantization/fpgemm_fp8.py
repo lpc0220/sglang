@@ -18,17 +18,12 @@ from sglang.srt.layers.quantization.base_config import (
 from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
 from sglang.srt.layers.quantization.fp8_utils import (
     apply_fp8_linear,
-    can_auto_enable_marlin_fp8,
     cutlass_fp8_supported,
     normalize_e4m3fn_to_e4m3fnuz,
 )
-from sglang.srt.layers.quantization.marlin_utils_fp8 import (
-    apply_fp8_marlin_linear,
-    prepare_fp8_layer_for_marlin,
-)
 from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
 from sglang.srt.layers.quantization.utils import is_layer_skipped
-from sglang.srt.utils import get_bool_env_var, is_cuda
+from sglang.srt.utils import is_cuda
 
 _is_cuda = is_cuda()
 _is_fp8_fnuz = is_fp8_fnuz()
@@ -44,14 +39,6 @@ class FBGEMMFp8Config(QuantizationConfig):
         self.ignore_list = ignore_list if ignore_list else []
         self.input_scale_ub = input_scale_ub
 
-        # For GPUs that lack FP8 hardware suspport, we can leverage the Marlin
-        # kernel for fast weight-only FP8 quantization
-        # self.use_marlin = not marlin_fp8_supported()
-        self.use_marlin = False
-        if _is_cuda:
-            force_marlin = get_bool_env_var("SGLANG_FORCE_FP8_MARLIN")
-            auto_enable = can_auto_enable_marlin_fp8()
-            self.use_marlin = force_marlin or auto_enable
 
     @classmethod
     def get_name(cls) -> str:
@@ -167,10 +154,6 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
             layer.weight_scale = Parameter(weight_scale, requires_grad=False)
 
         layer.weight = Parameter(weight.t(), requires_grad=False)
-        if self.quant_config.use_marlin:
-            prepare_fp8_layer_for_marlin(layer)
-            # Activations not quantized for marlin.
-            del layer.input_scale_ub
 
     def apply(
         self,
@@ -178,18 +161,6 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-
-        if self.quant_config.use_marlin:
-            return apply_fp8_marlin_linear(
-                input=x,
-                weight=layer.weight,
-                weight_scale=layer.weight_scale,
-                workspace=layer.workspace,
-                size_n=layer.output_size_per_partition,
-                size_k=layer.input_size_per_partition,
-                bias=bias,
-            )
-
         return apply_fp8_linear(
             input=x,
             weight=layer.weight,

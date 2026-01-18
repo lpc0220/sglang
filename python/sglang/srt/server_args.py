@@ -77,9 +77,6 @@ LOAD_FORMAT_CHOICES = [
 
 QUANTIZATION_CHOICES = [
     "fp8",
-    "gptq",
-    "marlin",
-    "gptq_marlin",
     "bitsandbytes",
     "modelopt",
     "modelopt_fp8",
@@ -87,11 +84,9 @@ QUANTIZATION_CHOICES = [
     "petit_nvfp4",
     "w8a8_int8",
     "w8a8_fp8",
-    "moe_wna16",
     "qoq",
     "w4afp8",
     "mxfp4",
-    "auto-round",
     "compressed-tensors",  # for Ktransformers
 ]
 
@@ -101,7 +96,6 @@ ATTENTION_BACKEND_CHOICES = [
     # Common
     "triton",
     "torch_native",
-    "flex_attention",
     # NVIDIA specific
     "cutlass_mla",
     "flashinfer",
@@ -1104,21 +1098,12 @@ class ServerArgs:
                 f"Attention backend not specified. Use {self.attention_backend} backend by default."
             )
 
-        # Torch native and flex attention backends
+        # Torch native attention backend
         if self.attention_backend == "torch_native":
             logger.warning(
                 "Cuda graph is disabled because of using torch native attention backend"
             )
             self.disable_cuda_graph = True
-
-        if self.attention_backend == "flex_attention":
-            logger.warning(
-                "Cuda graph is disabled because of using torch Flex Attention backend"
-            )
-            self.disable_cuda_graph = True
-            assert (
-                self.speculative_algorithm is None
-            ), "Speculative decoding is currently not supported with Flex Attention backend"
 
         # Major NVIDIA platforms backends
         if (
@@ -1218,7 +1203,6 @@ class ServerArgs:
                     KV4_ATTENTION_MHA_BACKEND_CHOICES = [
                         "triton",
                         "torch_native",
-                        "flex_attention",
                         "trtllm_mha",
                     ]
                     assert (

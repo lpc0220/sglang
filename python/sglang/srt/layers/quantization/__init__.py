@@ -8,28 +8,14 @@ from typing import TYPE_CHECKING, Dict, Optional, Type
 import torch
 
 
-# Define empty classes as placeholders when vllm is not available
-class DummyConfig:
-    def override_quantization_method(self, *args, **kwargs):
-        return None
-
-
-CompressedTensorsConfig = DummyConfig
-
-from sglang.srt.layers.quantization.auto_round import AutoRoundConfig
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.quantization.blockwise_int8 import BlockInt8Config
-from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import (
-    CompressedTensorsConfig,
-)
 from sglang.srt.layers.quantization.fp8 import Fp8Config
 from sglang.srt.layers.quantization.fpgemm_fp8 import FBGEMMFp8Config
-from sglang.srt.layers.quantization.gptq import GPTQConfig, GPTQMarlinConfig
 from sglang.srt.layers.quantization.modelopt_quant import (
     ModelOptFp4Config,
     ModelOptFp8Config,
 )
-from sglang.srt.layers.quantization.moe_wna16 import MoeWNA16Config
 from sglang.srt.layers.quantization.mxfp4 import Mxfp4Config
 from sglang.srt.layers.quantization.petit import PetitNvFp4Config
 from sglang.srt.layers.quantization.qoq import QoQConfig
@@ -53,16 +39,11 @@ BASE_QUANTIZATION_METHODS: Dict[str, Type[QuantizationConfig]] = {
     "modelopt_fp4": ModelOptFp4Config,
     "w8a8_int8": W8A8Int8Config,
     "w8a8_fp8": W8A8Fp8Config,
-    "gptq": GPTQConfig,
-    "gptq_marlin": GPTQMarlinConfig,
-    "moe_wna16": MoeWNA16Config,
-    "compressed-tensors": CompressedTensorsConfig,
     "qoq": QoQConfig,
     "w4afp8": W4AFp8Config,
     "petit_nvfp4": PetitNvFp4Config,
     "fbgemm_fp8": FBGEMMFp8Config,
     "quark": QuarkConfig,
-    "auto-round": AutoRoundConfig,
 }
 
 

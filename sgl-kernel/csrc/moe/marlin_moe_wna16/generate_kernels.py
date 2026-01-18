@@ -74,7 +74,7 @@ def generate_new_kernels():
         for group_blocks, m_blocks, thread_configs in itertools.product(
             GROUP_BLOCKS, THREAD_M_BLOCKS, THREAD_CONFIGS
         ):
-            # act order case only support gptq-int4 and gptq-int8
+            # act order case only support int4 and int8
             if group_blocks == 0 and scalar_type not in [
                 "sglang::kU4B8",
                 "sglang::kU8B128",

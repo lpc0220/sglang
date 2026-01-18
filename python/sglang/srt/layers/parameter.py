@@ -332,12 +332,10 @@ class PackedColumnParameter(_ColumnvLLMParameter):
         self,
         packed_factor: Union[int, Fraction],
         packed_dim: int,
-        marlin_tile_size: Optional[int] = None,
         **kwargs,
     ):
         self._packed_factor = packed_factor
         self._packed_dim = packed_dim
-        self._marlin_tile_size = marlin_tile_size
         super().__init__(**kwargs)
 
     @property
@@ -348,40 +346,32 @@ class PackedColumnParameter(_ColumnvLLMParameter):
     def packed_factor(self):
         return self._packed_factor
 
-    @property
-    def marlin_tile_size(self):
-        return self._marlin_tile_size
-
     def adjust_shard_indexes_for_packing(self, shard_size, shard_offset):
         return _adjust_shard_indexes_for_packing(
             shard_size=shard_size,
             shard_offset=shard_offset,
             packed_factor=self.packed_factor,
-            marlin_tile_size=self.marlin_tile_size,
         )
 
 
 class PackedvLLMParameter(ModelWeightParameter):
     """
     Parameter for model weights which are packed on disk.
-    Example: GPTQ Marlin weights are int4 or int8, packed into int32.
+    Example: int4 or int8 weights packed into int32.
     Extends the ModelWeightParameter to take in the
-    packed factor, the packed dimension, and optionally, marlin
-    tile size for marlin kernels. Adjusts the shard_size and
+    packed factor and the packed dimension. Adjusts the shard_size and
     shard_offset for fused linear layers model weight loading
-    by accounting for packing and optionally, marlin tile size.
+    by accounting for packing.
     """
 
     def __init__(
         self,
         packed_factor: Union[int, Fraction],
         packed_dim: int,
-        marlin_tile_size: Optional[int] = None,
         **kwargs,
     ):
         self._packed_factor = packed_factor
         self._packed_dim = packed_dim
-        self._marlin_tile_size = marlin_tile_size
         super().__init__(**kwargs)
 
     @property
@@ -392,16 +382,11 @@ class PackedvLLMParameter(ModelWeightParameter):
     def packed_factor(self):
         return self._packed_factor
 
-    @property
-    def marlin_tile_size(self):
-        return self._marlin_tile_size
-
     def adjust_shard_indexes_for_packing(self, shard_size, shard_offset):
         return _adjust_shard_indexes_for_packing(
             shard_size=shard_size,
             shard_offset=shard_offset,
             packed_factor=self.packed_factor,
-            marlin_tile_size=self.marlin_tile_size,
         )
 
 
@@ -463,19 +448,7 @@ def permute_param_layout_(
     return param
 
 
-def _adjust_shard_indexes_for_marlin(shard_size, shard_offset, marlin_tile_size):
-    return shard_size * marlin_tile_size, shard_offset * marlin_tile_size
-
-
-def _adjust_shard_indexes_for_packing(
-    shard_size, shard_offset, packed_factor, marlin_tile_size
-):
+def _adjust_shard_indexes_for_packing(shard_size, shard_offset, packed_factor):
     shard_size = shard_size // packed_factor
     shard_offset = shard_offset // packed_factor
-    if marlin_tile_size is not None:
-        return _adjust_shard_indexes_for_marlin(
-            shard_size=shard_size,
-            shard_offset=shard_offset,
-            marlin_tile_size=marlin_tile_size,
-        )
     return shard_size, shard_offset

@@ -28,7 +28,7 @@ class ScalarType:
     (something that torch.dtype currently does not support). It is also
     capable of  representing types with a bias, i.e.:
       `stored_value = value + bias`,
-    this is useful for quantized types (e.g. standard GPTQ 4bit uses a bias
+    this is useful for quantized types (e.g. standard 4bit uses a bias
     of 8). The implementation for this class can be found in
     csrc/core/scalar_type.hpp, these type signatures should be kept in sync
     with that file.
@@ -341,7 +341,7 @@ class scalar_types:
     # fp4, https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     float4_e2m1f = ScalarType.float_(2, 1, True, NanRepr.NONE)
 
-    # "gptq" types
+    # unsigned int types with bias
     uint2b2 = ScalarType.uint(2, 2)
     uint3b4 = ScalarType.uint(3, 4)
     uint4b8 = ScalarType.uint(4, 8)

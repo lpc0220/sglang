@@ -225,24 +225,6 @@ def override_config(config: QuantizationConfig, prefix: str):
         config.desc_act = desc_act
 
     config.pack_factor = 32 // config.weight_bits  # packed into int32
-    if config.get_name() == "gptq_marlin":
-        is_sym = get_dynamic_override(config, prefix, "sym", config.is_sym)
-        if isinstance(is_sym, bool):
-            config.is_sym = is_sym
-
-        if (config.weight_bits, config.is_sym) not in config.TYPE_MAP:
-            raise ValueError(
-                "Unsupported quantization config: "
-                f"bits={config.weight_bits}, sym={config.is_sym}"
-            )
-
-        config.quant_type = config.TYPE_MAP[(config.weight_bits, config.is_sym)]
-    elif config.get_name() == "gptq":
-        if config.weight_bits not in [2, 3, 4, 8]:
-            raise ValueError(
-                "Currently, only 2/3/4/8-bit weight quantization is "
-                f"supported for GPTQ, but got {config.weight_bits} bits."
-            )
 
 
 def get_dynamic_override(
@@ -512,42 +494,7 @@ def quantize_weights(
     )
 
 
-SUPPORTED_GPTQ_QUANT_TYPES = [scalar_types.uint4b8, scalar_types.uint8b128]
 SUPPORTED_GROUP_SIZES = [-1, 32, 64, 128]
-
-
-def gptq_quantize_weights(
-    w: torch.Tensor,
-    quant_type: ScalarType,
-    group_size: int,
-    act_order: bool,
-    test_perm: Optional[torch.Tensor] = None,
-):
-    size_k, _ = w.shape
-
-    assert w.is_floating_point(), "w must be float"
-    assert (
-        quant_type in SUPPORTED_GPTQ_QUANT_TYPES
-    ), f"Unsupported gptq type = {quant_type}"
-    assert group_size in SUPPORTED_GROUP_SIZES + [
-        size_k
-    ], f"Unsupported groupsize = {group_size}"
-
-    w_ref, w_q, w_s, _ = quantize_weights(w, quant_type, group_size)
-
-    # Apply act_order
-    g_idx = torch.empty(0, dtype=torch.int, device=w.device)
-    rand_perm = torch.empty(0, dtype=torch.int, device=w.device)
-    if act_order:
-        assert (
-            group_size < size_k
-        ), "For act_order, groupsize = {} must be less than size_k = {}".format(
-            group_size, size_k
-        )
-
-        w_ref, w_q, g_idx, rand_perm = permute_rows(w_q, w_ref, group_size, test_perm)
-
-    return w_ref, w_q, w_s, g_idx, rand_perm
 
 
 def sort_weights(q_w: torch.Tensor, g_idx: torch.Tensor):

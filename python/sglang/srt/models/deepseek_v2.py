@@ -165,7 +165,6 @@ from sglang.srt.utils import (
 
 if _is_cuda:
     from sgl_kernel import (
-        awq_dequantize,
         bmm_fp8,
         concat_mla_k,
         dsv3_fused_a_gemm,
@@ -2714,25 +2713,7 @@ class DeepseekV2ForCausalLM(nn.Module):
                 if not is_nextn
                 else self.model.decoder.self_attn
             )
-            if hasattr(self_attn.kv_b_proj, "qweight"):
-                # AWQ compatible
-                if _is_cuda:
-                    w = awq_dequantize(
-                        self_attn.kv_b_proj.qweight,
-                        self_attn.kv_b_proj.scales,
-                        self_attn.kv_b_proj.qzeros,
-                    ).T
-                else:
-                    w = awq_dequantize(
-                        self_attn.kv_b_proj.qweight,
-                        self_attn.kv_b_proj.scales,
-                        self_attn.kv_b_proj.qzeros,
-                        0,
-                        0,
-                        0,
-                    ).T
-            else:
-                w = self_attn.kv_b_proj.weight
+            w = self_attn.kv_b_proj.weight
             # NOTE(HandH1998): Since `bmm_fp8` only supports per-tensor scale, we have to requantize `self_attn.kv_b_proj`.
             # This may affect the accuracy of fp8 model.
             # Fix deepseek v3 blockwise bmm by using deep_gemm
@@ -3000,7 +2981,7 @@ class DeepseekV2ForCausalLM(nn.Module):
                     if ("mlp.experts." in name) and name not in params_dict:
                         continue
                     name = name.replace(weight_name, param_name)
-                    # Skip loading extra bias for GPTQ models.
+                    # Skip loading extra bias for quantized models.
                     if name.endswith(".bias") and name not in params_dict:
                         continue
                     param = params_dict[name]
@@ -3040,7 +3021,7 @@ class DeepseekV2ForCausalLM(nn.Module):
                         )
                         break
                     else:
-                        # Skip loading extra bias for GPTQ models.
+                        # Skip loading extra bias for quantized models.
                         if name.endswith(".bias") and name not in params_dict:
                             continue
                         # Skip loading embed_tokens if not first rank in pipeline parallelism

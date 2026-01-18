@@ -224,10 +224,7 @@ class QuantizationConfig(ABC):
 
     @abstractmethod
     def get_scaled_act_names(self) -> List[str]:
-        """Returns the activation function names that should be post-scaled.
-
-        For now, this is only used by AWQ.
-        """
+        """Returns the activation function names that should be post-scaled."""
         raise NotImplementedError()
 
     def apply_sglang_mapper(self, hf_to_sglang_mapper: "WeightsMapper"):  # noqa: B027
